@@ -1,0 +1,17 @@
+{
+  "name": "replit",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "body-parser": "^1.x",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^4.x",
+    "express-rate-limit": "^7.5.0",
+    "openai": "^4.96.0"
+  }
+}
