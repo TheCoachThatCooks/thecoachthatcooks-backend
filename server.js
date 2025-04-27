@@ -47,8 +47,8 @@ app.use(express.json());
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  standardHeaders: true,
+  legacyHeaders: false,
   message: "Too many requests from this IP, please try again after 15 minutes",
 });
 
@@ -60,12 +60,12 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// POST endpoint to handle chat messages
+// UPDATED POST endpoint to handle full chat messages (with memory!)
 app.post("/", async (req, res) => {
-  const { message } = req.body;
+  const { messages } = req.body;
 
-  if (!message) {
-    return res.status(400).json({ error: "Message is required" });
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: "Messages array is required" });
   }
 
   try {
@@ -161,9 +161,10 @@ Always align with joyful, sustainable eating — flavor first, fitness-enabling.
 - Normalize human struggles around food and fitness
 - Offer fast, practical flavor-first wins whenever possible
 - Teach as you guide — don’t just hand answers
-- Where helpful, offer flexible options, swaps, shortcuts, and "Ben's Chef’d Up Upgrades"`,
+- Where helpful, offer flexible options, swaps, shortcuts, and "Ben's Chef’d Up Upgrades"
+`
         },
-        { role: "user", content: message },
+        ...messages // <-- this is the real memory upgrade here!
       ],
       temperature: 0.7,
       max_tokens: 1000,
@@ -173,15 +174,10 @@ Always align with joyful, sustainable eating — flavor first, fitness-enabling.
       success: true,
       reply: completion.choices[0].message.content,
     });
-  } catch (error) {
-    console.error("OpenAI API Error:", error.message);
 
-    // Send a generic error message to client (avoid exposing error details)
-    res.status(500).json({
-      success: false,
-      error: "Error processing your request",
-      requestId: generateRequestId(), // Add a request ID for troubleshooting
-    });
+  } catch (error) {
+    console.error("OpenAI API Error:", error.message || error);
+    res.status(500).json({ success: false, error: "Error processing your request." });
   }
 });
 
