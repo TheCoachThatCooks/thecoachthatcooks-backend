@@ -15,7 +15,10 @@ const PORT = process.env.PORT || 3000;
 
 app.use(
   cors({
-    origin: "https://thecoachthatcooks-ai.netlify.app",
+    origin: [
+    "https://thecoachthatcooks-ai.netlify.app",
+    "https://staging--thecoachthatcooks-ai.netlify.app"
+  ],
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
 }));
