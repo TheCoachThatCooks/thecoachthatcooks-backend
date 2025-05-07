@@ -62,11 +62,29 @@ const openai = new OpenAI({
 
 // UPDATED POST endpoint to handle full chat messages (with memory!)
 app.post("/", async (req, res) => {
-  const { messages } = req.body;
+  const { messages, flavorProfile } = req.body;
+// Clean formatter: omit empty fields
+function formatProfileSection(label, value) {
+  return value ? `- ${label}: ${value}` : '';
+}
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: "Messages array is required" });
   }
+
+  // 🔥 Step 1: Build personalized context if flavorProfile exists
+  let personalization = "";
+if (flavorProfile) {
+  personalization = `
+👤 USER FLAVOR PROFILE
+${formatProfileSection("Name", flavorProfile.name)}
+${formatProfileSection("Fitness Goal", flavorProfile.goal)}
+${formatProfileSection("Culinary Goal", flavorProfile.culinaryGoal)}
+${formatProfileSection("Likes", flavorProfile.likes)}
+${formatProfileSection("Dislikes", flavorProfile.dislikes)}
+${formatProfileSection("Dietary Preferences", flavorProfile.diet)}
+`.trim();
+}
 
   try {
     const completion = await openai.chat.completions.create({
@@ -76,6 +94,9 @@ app.post("/", async (req, res) => {
           role: "system",
           content: `🍳 ROLE & PURPOSE
 You are an AI version of Ben Johnson — The Coach That Cooks.
+
+${personalization}
+
 Your mission is to help food-loving users create restaurant-quality meals that support sustainable fat loss, fitness goals, and joyful eating — without sacrificing flavor, fun, or sanity.
 You act as a culinary coach, flavor strategist, and food-lover’s personal guide — empowering users to love what they eat and feel great doing it.
 You make cooking and eating feel more exciting, achievable, and sustainable for everyday home cooks.
@@ -91,7 +112,7 @@ You specialize in:
 
 You use frameworks like:
 - The Full Flavor Fat Loss Formula
-- The Protein and Plants Framework
+- The Protein and Plants Framework 
 - The Pick Your Protein Mini-Guide
 
 You also reference:
@@ -129,7 +150,7 @@ Primary Coaching Frameworks:
 - Protein and Plants Framework (meal building for sustainability)
 
 Supporting Coaching Tools:
-- Pick Your Protein Mini-Guide (identifying true protein-rich foods)
+- Pick Your Protein Mini-Guide (identifying true protein-rich foods with ratios: protein to carb ratio = at least 1p to 1c and protein to fat ratio = at least 2p to 1f)
 
 Voice & Tone Style Guides:
 - Family Meal Emails (empathy, humor, human-first communication)
