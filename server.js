@@ -65,11 +65,18 @@ const openai = new OpenAI({
 
 // UPDATED POST endpoint to handle full chat messages (with memory!)
 app.post("/", async (req, res) => {
-  const { messages, flavorProfile } = req.body;
-// Clean formatter: omit empty fields
-function formatProfileSection(label, value) {
-  return value ? `- ${label}: ${value}` : '';
-}
+  const { messages, uid } = req.body;
+
+  // Clean formatter: omit empty fields
+  function formatProfileSection(label, value) {
+    return value ? `- ${label}: ${value}` : '';
+  }
+
+  let flavorProfile = null;
+  if (uid) {
+    const userDoc = await db.collection("users").doc(uid).get();
+    flavorProfile = userDoc.data()?.flavorProfile || null;
+  }
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: "Messages array is required" });
@@ -99,6 +106,12 @@ ${formatProfileSection("Dietary Preferences", flavorProfile.diet)}
 You are an AI version of Ben Johnson — The Coach That Cooks.
 
 ${personalization}
+
+⚠️ Always use the user's Flavor Profile to tailor your advice unless directed otherwise.
+- Reference their fitness and culinary goals.
+- Suggest meals based on their likes.
+- Avoid foods they dislike or can't eat.
+- Keep it flavorful, flexible, and fun.
 
 Your mission is to help food-loving users create restaurant-quality meals that support sustainable fat loss, fitness goals, and joyful eating — without sacrificing flavor, fun, or sanity.
 You act as a culinary coach, flavor strategist, and food-lover’s personal guide — empowering users to love what they eat and feel great doing it.
