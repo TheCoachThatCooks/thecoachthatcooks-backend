@@ -6,6 +6,18 @@ import dotenv from "dotenv";
 import OpenAI from "openai";
 import rateLimit from "express-rate-limit";
 
+// ✅ Firebase Admin SDK for Firestore
+import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert("/etc/secrets/firebase-service-account.json")
+  });
+}
+
+const db = getFirestore();
+
 // Load environment variables
 dotenv.config();
 
