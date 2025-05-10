@@ -10,6 +10,8 @@ import rateLimit from "express-rate-limit";
 import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
 
+console.log("🧪 Using Firebase cert path:", "/etc/secrets/firebase-service-account.json");
+
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert("/etc/secrets/firebase-service-account.json")
@@ -17,6 +19,7 @@ if (!admin.apps.length) {
 }
 
 const db = getFirestore();
+console.log("✅ Firestore DB initialized");
 
 // Load environment variables
 dotenv.config();
