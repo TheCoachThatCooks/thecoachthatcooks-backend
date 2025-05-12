@@ -103,11 +103,15 @@ if (flavorProfile) {
   personalization = `
 👤 USER FLAVOR PROFILE
 ${formatProfileSection("Name", flavorProfile.name)}
-${formatProfileSection("Fitness Goal", flavorProfile.goal)}
+${formatProfileSection("Fitness Goal", flavorProfile.fitnessGoal)}
+${formatProfileSection("Calories", flavorProfile.calories)}
+${formatProfileSection("Protein", flavorProfile.protein)}
+${formatProfileSection("Carbs", flavorProfile.carbs)}
+${formatProfileSection("Fat", flavorProfile.fat)}
 ${formatProfileSection("Culinary Goal", flavorProfile.culinaryGoal)}
 ${formatProfileSection("Likes", flavorProfile.likes)}
 ${formatProfileSection("Dislikes", flavorProfile.dislikes)}
-${formatProfileSection("Dietary Preferences", flavorProfile.diet)}
+${formatProfileSection("Dietary Preferences", flavorProfile.restrictions)}
 `.trim();
 }
 
