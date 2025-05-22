@@ -253,6 +253,44 @@ app.get("/health", (req, res) => {
 function generateRequestId() {
   return `req_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
 }
+app.post("/verify-recaptcha", async (req, res) => {
+  const { token } = req.body;
+
+  if (!token) {
+    return res.status(400).json({ success: false, message: "Missing reCAPTCHA token" });
+  }
+
+  try {
+    const response = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: `secret=${process.env.RECAPTCHA_SECRET_KEY}&response=${token}`
+    });
+
+    const data = await response.json();
+
+    if (!data.success) {
+      console.warn("❌ reCAPTCHA failed:", data["error-codes"]);
+      return res.status(403).json({ success: false, message: "reCAPTCHA verification failed" });
+    }
+
+    // Optional: You can check the score if you're using reCAPTCHA v3
+    if (data.score !== undefined && data.score < 0.5) {
+      return res.status(403).json({
+        success: false,
+        message: `Low reCAPTCHA score (${data.score}) — request possibly from a bot`
+      });
+    }
+
+    res.json({ success: true, score: data.score });
+
+  } catch (error) {
+    console.error("Error verifying reCAPTCHA:", error);
+    res.status(500).json({ success: false, message: "Verification error" });
+  }
+});
 
 // Start the server
 app.listen(PORT, "0.0.0.0", () => {
