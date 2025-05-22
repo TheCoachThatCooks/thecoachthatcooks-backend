@@ -256,11 +256,16 @@ function generateRequestId() {
 app.post("/verify-recaptcha", async (req, res) => {
   const { token } = req.body;
 
+  console.log("📩 Incoming request to /verify-recaptcha");
+
   if (!token) {
+    console.warn("⚠️ Missing reCAPTCHA token in request body");
     return res.status(400).json({ success: false, message: "Missing reCAPTCHA token" });
   }
 
   try {
+    console.log("🔒 Verifying reCAPTCHA token with Google...");
+
     const response = await fetch("https://www.google.com/recaptcha/api/siteverify", {
       method: "POST",
       headers: {
@@ -272,22 +277,27 @@ app.post("/verify-recaptcha", async (req, res) => {
     const data = await response.json();
 
     if (!data.success) {
-      console.warn("❌ reCAPTCHA failed:", data["error-codes"]);
+      console.warn("❌ reCAPTCHA verification failed:", data["error-codes"]);
       return res.status(403).json({ success: false, message: "reCAPTCHA verification failed" });
     }
 
-    // Optional: You can check the score if you're using reCAPTCHA v3
-    if (data.score !== undefined && data.score < 0.5) {
-      return res.status(403).json({
-        success: false,
-        message: `Low reCAPTCHA score (${data.score}) — request possibly from a bot`
-      });
+    if (data.score !== undefined) {
+      console.log("✅ reCAPTCHA score received:", data.score);
+
+      if (data.score < 0.5) {
+        console.warn(`⚠️ Low reCAPTCHA score (${data.score}) — possible bot`);
+        return res.status(403).json({
+          success: false,
+          message: `Low reCAPTCHA score (${data.score}) — request possibly from a bot`
+        });
+      }
     }
 
+    console.log("🎉 reCAPTCHA verification successful");
     res.json({ success: true, score: data.score });
 
   } catch (error) {
-    console.error("Error verifying reCAPTCHA:", error);
+    console.error("💥 Error verifying reCAPTCHA:", error);
     res.status(500).json({ success: false, message: "Verification error" });
   }
 });
