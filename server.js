@@ -244,6 +244,64 @@ app.get("/", (req, res) => {
   res.json({ message: "Welcome to The Coach That Cooks API" });
 });
 
+// ✅ New /generate-metadata route
+app.post("/generate-metadata", async (req, res) => {
+  const { content } = req.body;
+
+  if (!content || typeof content !== "string") {
+    return res.status(400).json({ success: false, error: "Missing or invalid content." });
+  }
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: `You are an assistant that summarizes user-generated text and suggests metadata for saving. 
+
+Your goal is to return clean JSON with:
+- title: short, clear, flavorful title (max 60 characters)
+- summary: short summary of the content (max 140 characters)
+- tags: array of 2–4 relevant lowercase tags (e.g. ['recipe', 'high-protein', 'meal prep'])
+
+Respond ONLY with valid JSON.`
+        },
+        {
+          role: "user",
+          content: content
+        }
+      ],
+      temperature: 0.5,
+      max_tokens: 200
+    });
+
+    const responseText = completion.choices[0].message.content;
+
+    // Basic attempt to parse JSON safely
+    let metadata;
+    try {
+      metadata = JSON.parse(responseText);
+    } catch (err) {
+      console.error("❌ Failed to parse metadata JSON:", responseText);
+      return res.status(500).json({ success: false, error: "Failed to parse AI metadata." });
+    }
+
+    if (!metadata.title || !metadata.summary || !Array.isArray(metadata.tags)) {
+      return res.status(500).json({ success: false, error: "Incomplete metadata returned." });
+    }
+
+    res.json({
+      success: true,
+      ...metadata
+    });
+
+  } catch (error) {
+    console.error("OpenAI Metadata Error:", error);
+    res.status(500).json({ success: false, error: "Failed to generate metadata." });
+  }
+});
+
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });
