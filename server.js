@@ -276,8 +276,15 @@ Respond ONLY with valid JSON.`
       max_tokens: 200
     });
 
-    const responseText = completion.choices[0].message.content;
+    let responseText = completion.choices[0].message.content.trim();
 
+// Strip ```json or ``` from GPT responses
+if (responseText.startsWith("```")) {
+  responseText = responseText
+    .replace(/```(?:json)?\s*/i, "") // remove opening ``` or ```json
+    .replace(/```$/, "")             // remove closing ```
+    .trim();
+}
     // Basic attempt to parse JSON safely
     let metadata;
     try {
