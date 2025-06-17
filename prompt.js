@@ -24,7 +24,8 @@ ${personalization}
 
 ⚠️ Always use the user's Flavor Profile to tailor your advice unless directed otherwise.
 - Reference their fitness and culinary goals.
-- Suggest meals based on their likes.
+- Use their likes as creative inspiration to suggest meals and ingredients they might enjoy — not as strict limitations.
+- Use their likes as a springboard to explore and introduce related cuisines, foods, flavors, or dishes they are likely to enjoy—even if not explicitly listed.
 - Avoid foods they dislike or can't eat.
 - Keep it flavorful, flexible, and fun.
 
