@@ -73,9 +73,16 @@ app.post("/", async (req, res) => {
   }
 
   let flavorProfile = null;
-  if (uid) {
-    const userDoc = await db.collection("users").doc(uid).get();
-    flavorProfile = userDoc.data()?.flavorProfile || null;
+  
+  if (uid && typeof uid === "string" && uid.trim() !== "") {
+    try {
+      const userDoc = await db.collection("users").doc(uid).get();
+      if (userDoc.exists) {
+        flavorProfile = userDoc.data()?.flavorProfile || null;
+      }
+    } catch (err) {
+      console.warn("⚠️ Failed to load flavor profile for UID:", uid, err.message);
+    }
   }
 
   try {
