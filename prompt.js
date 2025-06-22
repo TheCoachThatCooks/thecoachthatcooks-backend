@@ -1,6 +1,9 @@
 // prompt.js
 
 export function buildSystemPrompt(flavorProfile = {}) {
+  if (!flavorProfile || typeof flavorProfile !== 'object') {
+  flavorProfile = {};
+  }
   const format = (label, value) => value ? `- ${label}: ${value}` : "";
 
   const personalization = `
