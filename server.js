@@ -114,35 +114,42 @@ app.post("/", async (req, res) => {
  * 📅 New /generate-week-plan route
  */
 app.post("/generate-week-plan", async (req, res) => {
-  const { profile } = req.body;
+  const { profile, instructions, meals } = req.body;
 
-  if (!profile) {
-    return res.status(400).json({ success: false, error: "Missing user flavor profile." });
-  }
+if (!profile) {
+  return res.status(400).json({ success: false, error: "Missing user flavor profile." });
+}
 
-  try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: buildSystemPrompt(profile)
-        },
-        {
-          role: "user",
-          content: `Can you generate a full 7-day meal plan (3 meals per day) based on my flavor profile?
+let userMessage = instructions?.trim()
+  ? instructions
+  : `Please create a flavorful, goal-aligned 7-day meal plan (3 meals per day) based on my flavor profile.`;
 
-Please respond with ONLY valid JSON like:
+if (Array.isArray(meals) && meals.length > 0) {
+  userMessage += `\nPlease only include meals for: ${meals.join(", ")}.`;
+}
+
+userMessage += `\nRespond with ONLY valid JSON like:
 {
   "Mon": [{ "mealType": "Breakfast", "title": "..." }, ...],
   ...
   "Sun": [...]
-}`
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 1500,
-    });
+}`;
+
+const completion = await openai.chat.completions.create({
+  model: "gpt-4o",
+  messages: [
+    {
+      role: "system",
+      content: buildSystemPrompt(profile)
+    },
+    {
+      role: "user",
+      content: userMessage
+    }
+  ],
+  temperature: 0.7,
+  max_tokens: 1500,
+});
 
     let result = completion.choices[0].message.content.trim();
 
