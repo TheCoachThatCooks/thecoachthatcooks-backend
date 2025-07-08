@@ -114,45 +114,55 @@ app.post("/", async (req, res) => {
  * 📅 New /generate-week-plan route
  */
 app.post("/generate-week-plan", async (req, res) => {
-  const { profile, instructions, meals } = req.body;
+  try {
+    const { profile, payload } = req.body;
 
-if (!profile) {
-  return res.status(400).json({ success: false, error: "Missing user flavor profile." });
-}
+    if (!profile || !payload) {
+      return res.status(400).json({ success: false, error: "Missing data." });
+    }
 
-let userMessage = instructions?.trim()
-  ? instructions
-  : `Please create a flavorful, goal-aligned 7-day meal plan (3 meals per day) based on my flavor profile.`;
+    const { mode, meals, cravings, tags, specialPlans, useFavorites } = payload;
 
-if (Array.isArray(meals) && meals.length > 0) {
-  userMessage += `\nPlease only include meals for: ${meals.join(", ")}.`;
-}
+    let userMessage = `Please create a flavorful, goal-aligned ${mode === "day" ? "1-day" : "7-day"} meal plan based on my flavor profile.`;
 
-userMessage += `\nRespond with ONLY valid JSON like:
+    if (Array.isArray(meals) && meals.length > 0) {
+      userMessage += `\nOnly include: ${meals.join(", ")}.`;
+    }
+
+    if (cravings) {
+      userMessage += `\nI'm in the mood for: ${cravings}`;
+    }
+
+    if (tags?.length) {
+      userMessage += `\nThe vibe I'm going for includes: ${tags.join(", ")}.`;
+    }
+
+    if (specialPlans) {
+      userMessage += `\nAlso keep in mind: ${specialPlans}`;
+    }
+
+    if (useFavorites) {
+      userMessage += `\nIf possible, remix 1–2 of my previously saved favorite meals.`;
+    }
+
+    userMessage += `\nRespond with ONLY valid JSON like:
 {
   "Mon": [{ "mealType": "Breakfast", "title": "..." }, ...],
   ...
   "Sun": [...]
 }`;
 
-const completion = await openai.chat.completions.create({
-  model: "gpt-4o",
-  messages: [
-    {
-      role: "system",
-      content: buildSystemPrompt(profile)
-    },
-    {
-      role: "user",
-      content: userMessage
-    }
-  ],
-  temperature: 0.7,
-  max_tokens: 1500,
-});
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: buildSystemPrompt(profile) },
+        { role: "user", content: userMessage }
+      ],
+      temperature: 0.7,
+      max_tokens: 1500,
+    });
 
     let result = completion.choices[0].message.content.trim();
-
     if (result.startsWith("```")) {
       result = result.replace(/```(?:json)?/i, "").replace(/```$/, "").trim();
     }
