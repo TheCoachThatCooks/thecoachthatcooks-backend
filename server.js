@@ -166,9 +166,25 @@ app.post("/generate-week-plan", async (req, res) => {
     if (result.startsWith("```")) {
       result = result.replace(/```(?:json)?/i, "").replace(/```$/, "").trim();
     }
-
+    
     const plan = JSON.parse(result);
-    res.json(plan);
+    
+    // ✅ Replace "Mon"–"Sun" keys with ISO date keys
+    const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const startDate = new Date(); // Later: use payload.startDate if you add that
+    
+    const isoPlan = {};
+    dayNames.forEach((day, i) => {
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + i);
+      const iso = d.toISOString().split("T")[0];
+      if (plan[day]) {
+        isoPlan[iso] = plan[day];
+      }
+    });
+    
+    // ✅ Send the ISO-keyed plan to the frontend
+    res.json(isoPlan);
 
   } catch (error) {
     console.error("❌ Failed to generate weekly plan:", error.message || error);
