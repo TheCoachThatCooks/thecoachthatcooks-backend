@@ -123,50 +123,34 @@ app.post("/generate-week-plan", async (req, res) => {
 
     const { mode, meals, cravings, tags, specialPlans, useFavorites } = payload;
 
-    let userMessage = "";
+    let userMessage = `Please create a flavorful, goal-aligned ${mode === "day" ? "1-day" : "7-day"} meal plan based on my flavor profile.`;
 
-    if (mode === "day") {
-      userMessage = `
-    You're planning a personalized ${meals?.[0] || "meal"} for a client based on their flavor profile.
-    
-    - Cravings: ${cravings || "none"}
-    - Vibe Tags: ${tags?.join(", ") || "none"}
-    - Special Plans: ${specialPlans || "none"}
-    - Use Favorites: ${useFavorites ? "Yes" : "No"}
-    
-    Generate 1–3 meal ideas for this ${meals?.[0]}.
-    Make them fun, flavorful, and goal-aligned — focus on creativity and restaurant-quality flavor.
-    
-    Respond with ONLY valid JSON like:
-    [
-      {
-        "mealType": "Dinner",
-        "title": "Chili-Lime Salmon with Roasted Corn Salad"
-      },
-      {
-        "mealType": "Dinner",
-        "title": "Creamy Coconut Chicken over Charred Carrots"
-      }
-    ]`;
-    } else {
-      userMessage = `
-    Please create a flavorful, goal-aligned 7-day meal plan based on my flavor profile.
-    
-    - Cravings: ${cravings || "none"}
-    - Vibe Tags: ${tags?.join(", ") || "none"}
-    - Special Plans: ${specialPlans || "none"}
-    - Use Favorites: ${useFavorites ? "Yes" : "No"}
-    
-    Only include meals for: ${meals.join(", ")}
-    
-    Respond with ONLY valid JSON like:
-    {
-      "Mon": [{ "mealType": "Breakfast", "title": "..." }, ...],
-      "Tue": [...],
-      ...
-      "Sun": [...]
-    }`;
+    if (Array.isArray(meals) && meals.length > 0) {
+      userMessage += `\nOnly include: ${meals.join(", ")}.`;
     }
+
+    if (cravings) {
+      userMessage += `\nI'm in the mood for: ${cravings}`;
+    }
+
+    if (tags?.length) {
+      userMessage += `\nThe vibe I'm going for includes: ${tags.join(", ")}.`;
+    }
+
+    if (specialPlans) {
+      userMessage += `\nAlso keep in mind: ${specialPlans}`;
+    }
+
+    if (useFavorites) {
+      userMessage += `\nIf possible, remix 1–2 of my previously saved favorite meals.`;
+    }
+
+    userMessage += `\nRespond with ONLY valid JSON like:
+{
+  "Mon": [{ "mealType": "Breakfast", "title": "..." }, ...],
+  ...
+  "Sun": [...]
+}`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -184,18 +168,11 @@ app.post("/generate-week-plan", async (req, res) => {
     }
     
     const plan = JSON.parse(result);
-
-    if (mode === "day") {
-      const iso = new Date().toISOString().split("T")[0];
-      const isoPlan = {
-        [iso]: plan // just drop the array in under today’s key
-      };
-      return res.json(isoPlan);
-    }
     
-    // Otherwise continue with week plan logic
+    // ✅ Replace "Mon"–"Sun" keys with ISO date keys
     const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    const startDate = new Date();
+    const startDate = new Date(); // Later: use payload.startDate if you add that
+    
     const isoPlan = {};
     dayNames.forEach((day, i) => {
       const d = new Date(startDate);
@@ -212,6 +189,76 @@ app.post("/generate-week-plan", async (req, res) => {
   } catch (error) {
     console.error("❌ Failed to generate weekly plan:", error.message || error);
     res.status(500).json({ success: false, error: "Failed to generate meal plan." });
+  }
+});
+
+/**
+ * 📅 New /generate-day-plan route
+ */
+app.post("/generate-day-plan", async (req, res) => {
+  try {
+    const { profile, payload } = req.body;
+
+    if (!profile || !payload) {
+      return res.status(400).json({ success: false, error: "Missing data." });
+    }
+
+    const { meals, cravings, tags, specialPlans, useFavorites } = payload;
+
+    let userMessage = `Please create a flavorful, goal-aligned 1-day meal plan based on my flavor profile.`;
+
+    if (Array.isArray(meals) && meals.length > 0) {
+      userMessage += `\nOnly include: ${meals.join(", ")}.`;
+    }
+
+    if (cravings) {
+      userMessage += `\nI'm in the mood for: ${cravings}`;
+    }
+
+    if (tags?.length) {
+      userMessage += `\nThe vibe I'm going for includes: ${tags.join(", ")}.`;
+    }
+
+    if (specialPlans) {
+      userMessage += `\nAlso keep in mind: ${specialPlans}`;
+    }
+
+    if (useFavorites) {
+      userMessage += `\nIf possible, remix 1–2 of my previously saved favorite meals.`;
+    }
+
+    userMessage += `\nRespond with ONLY valid JSON like:
+[
+  { "mealType": "Dinner", "title": "..." },
+  { "mealType": "Dinner", "title": "..." }
+]`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: buildSystemPrompt(profile) },
+        { role: "user", content: userMessage }
+      ],
+      temperature: 0.7,
+      max_tokens: 1000,
+    });
+
+    let result = completion.choices[0].message.content.trim();
+    if (result.startsWith("```")) {
+      result = result.replace(/```(?:json)?/i, "").replace(/```$/, "").trim();
+    }
+
+    const plan = JSON.parse(result);
+
+    // Wrap in today's ISO key so frontend expects same structure
+    const iso = new Date().toISOString().split("T")[0];
+    const isoPlan = { [iso]: plan };
+
+    res.json(isoPlan);
+
+  } catch (error) {
+    console.error("❌ Failed to generate day plan:", error.message || error);
+    res.status(500).json({ success: false, error: "Failed to generate day plan." });
   }
 });
 
