@@ -6,6 +6,10 @@ import rateLimit from "express-rate-limit";
 import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
 import { buildSystemPrompt } from "./prompt.js"; // <-- ✅ Modular brain
+import {
+  buildWeeklyPlannerPrompt,
+  buildDayPlannerPrompt
+} from "./planner-prompts.js";
 
 dotenv.config();
 
@@ -123,37 +127,7 @@ app.post("/generate-week-plan", async (req, res) => {
 
     const { mode, meals, cravings, tags, specialPlans, useFavorites } = payload;
 
-    let userMessage = `Please create a flavorful, goal-aligned 7-day meal plan based on my flavor profile.
-
-This is a special planner request. This plan should prioritize my current cravings and mood over general preferences. My Flavor Profile is helpful for inspiration, but mood, cravings, and vibe tags are more important for this request.
-`;
-
-    if (Array.isArray(meals) && meals.length > 0) {
-      userMessage += `\nOnly include: ${meals.join(", ")}.`;
-    }
-
-    if (cravings) {
-      userMessage += `\nI'm in the mood for: ${cravings}`;
-    }
-
-    if (tags?.length) {
-      userMessage += `\nThe vibe I'm going for includes: ${tags.join(", ")}.`;
-    }
-
-    if (specialPlans) {
-      userMessage += `\nAlso keep in mind: ${specialPlans}`;
-    }
-
-    if (useFavorites) {
-      userMessage += `\nIf possible, remix 1–2 of my previously saved favorite meals.`;
-    }
-
-    userMessage += `\nRespond with ONLY valid JSON like:
-{
-  "Mon": [{ "mealType": "Breakfast", "title": "..." }, ...],
-  ...
-  "Sun": [...]
-}`;
+    const userMessage = buildWeeklyPlannerPrompt(profile, payload);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -208,36 +182,7 @@ app.post("/generate-day-plan", async (req, res) => {
 
     const { meals, cravings, tags, specialPlans, useFavorites } = payload;
 
-    let userMessage = `Please create a flavorful, goal-aligned 1-day meal plan based on my flavor profile.
-
-This is a special planner request. This plan should prioritize my current cravings and mood over general preferences. My Flavor Profile is helpful for inspiration, but mood, cravings, and vibe tags are more important for this request.
-`;
-
-    if (Array.isArray(meals) && meals.length > 0) {
-      userMessage += `\nOnly include: ${meals.join(", ")}.`;
-    }
-
-    if (cravings) {
-      userMessage += `\nI'm in the mood for: ${cravings}`;
-    }
-
-    if (tags?.length) {
-      userMessage += `\nThe vibe I'm going for includes: ${tags.join(", ")}.`;
-    }
-
-    if (specialPlans) {
-      userMessage += `\nAlso keep in mind: ${specialPlans}`;
-    }
-
-    if (useFavorites) {
-      userMessage += `\nIf possible, remix 1–2 of my previously saved favorite meals.`;
-    }
-
-    userMessage += `\nRespond with ONLY valid JSON like:
-[
-  { "mealType": "Dinner", "title": "..." },
-  { "mealType": "Dinner", "title": "..." }
-]`;
+    const userMessage = buildDayPlannerPrompt(profile, payload);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
