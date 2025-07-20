@@ -123,7 +123,10 @@ app.post("/generate-week-plan", async (req, res) => {
 
     const { mode, meals, cravings, tags, specialPlans, useFavorites } = payload;
 
-    let userMessage = `Please create a flavorful, goal-aligned ${mode === "day" ? "1-day" : "7-day"} meal plan based on my flavor profile.`;
+    let userMessage = `Please create a flavorful, goal-aligned 7-day meal plan based on my flavor profile.
+
+This is a special planner request. This plan should prioritize my current cravings and mood over general preferences. My Flavor Profile is helpful for inspiration, but mood, cravings, and vibe tags are more important for this request.
+`;
 
     if (Array.isArray(meals) && meals.length > 0) {
       userMessage += `\nOnly include: ${meals.join(", ")}.`;
@@ -205,7 +208,10 @@ app.post("/generate-day-plan", async (req, res) => {
 
     const { meals, cravings, tags, specialPlans, useFavorites } = payload;
 
-    let userMessage = `Please create a flavorful, goal-aligned 1-day meal plan based on my flavor profile.`;
+    let userMessage = `Please create a flavorful, goal-aligned 1-day meal plan based on my flavor profile.
+
+This is a special planner request. This plan should prioritize my current cravings and mood over general preferences. My Flavor Profile is helpful for inspiration, but mood, cravings, and vibe tags are more important for this request.
+`;
 
     if (Array.isArray(meals) && meals.length > 0) {
       userMessage += `\nOnly include: ${meals.join(", ")}.`;
