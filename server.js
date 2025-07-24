@@ -145,20 +145,7 @@ app.post("/generate-week-plan", async (req, res) => {
     }
     
     const plan = JSON.parse(result);
-    
-    // ✅ Replace "Mon"–"Sun" keys with ISO date keys
-    const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    const startDate = new Date(); // Later: use payload.startDate if you add that
-    
-    const isoPlan = {};
-    dayNames.forEach((day, i) => {
-      const d = new Date(startDate);
-      d.setDate(d.getDate() + i);
-      const iso = d.toISOString().split("T")[0];
-      if (plan[day]) {
-        isoPlan[iso] = plan[day];
-      }
-    });
+    const isoPlan = plan; // GPT now returns ISO-keyed plan already
     
     // ✅ Send the ISO-keyed plan to the frontend
     res.json(isoPlan);
@@ -202,7 +189,7 @@ app.post("/generate-day-plan", async (req, res) => {
     const plan = JSON.parse(result);
 
     // Wrap in today's ISO key so frontend expects same structure
-    const iso = new Date().toISOString().split("T")[0];
+    const iso = payload.targetDate || new Date().toISOString().split("T")[0];
     const isoPlan = { [iso]: plan };
 
     res.json(isoPlan);
