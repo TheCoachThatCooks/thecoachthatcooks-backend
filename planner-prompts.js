@@ -2,6 +2,8 @@
 
 export function buildWeeklyPlannerPrompt(profile, payload) {
   const {
+    startDate,
+    numDays,
     intentNotes,
     meals,
     cravings,
@@ -10,20 +12,26 @@ export function buildWeeklyPlannerPrompt(profile, payload) {
     useFavorites
   } = payload;
 
+  const formattedDate = new Date(startDate).toLocaleDateString(undefined, {
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  });
+
   let prompt = `You're acting as a private chef and fitness-minded culinary coach for a client following a full-flavor approach to fitness.
 
 This user is pursuing sustainable fitness without restriction. They want tasty, craveable meals. Every dish should deliciously align with their goals and gravitate toward the Protein and Plants Framework: which prioritizes lean protein (~25–33% of the plate) and plants (~50% of the plate) with chef-level flavor built from thoughtful techniques, concepts, and ingredients.
 
-Use their Flavor Profile as a base layer for personalization—but this is a special 7-day planning request, and your job is to help them plan meals that meet their cravings, mood, and short-term context while staying aligned with their goals.
+Use their Flavor Profile as a base layer for personalization—but this is a special short-term planning request: Your job is to help them plan meals for ${numDays} day${numDays > 1 ? "s" : ""}, starting on ${formattedDate}, that reflect their cravings, mood, and short-term context while staying aligned with their goals.
 
 ⚠️ Do NOT include low-protein meals, random snacks, or flavorless fitness foods. Every dish should support their goals while making them excited to eat.`;
 
   prompt += `
 
-Client's focus for the week:
+Client's focus for this date range:
 ${intentNotes || "(No specific direction — use flavor profile and inputs below)"}
 
-Inputs to reflect in this week's plan:`;
+Inputs to reflect in this plan:`;
 
   if (Array.isArray(meals) && meals.length > 0) {
     prompt += `\n- Meals to include: ${meals.join(", ")}`;
@@ -49,9 +57,9 @@ Inputs to reflect in this week's plan:`;
 
 Respond with ONLY valid JSON like:
 {
-  "Mon": [{ "mealType": "Breakfast", "title": "..." }, ...],
+  "2025-07-29": [{ "mealType": "Breakfast", "title": "..." }, ...],
+  "2025-07-30": [...],
   ...
-  "Sun": [...]
 }`;
 
   return prompt;
