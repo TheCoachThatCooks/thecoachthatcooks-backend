@@ -8,7 +8,8 @@ import { getFirestore } from "firebase-admin/firestore";
 import { buildSystemPrompt } from "./prompt.js"; // <-- ✅ Modular brain
 import {
   buildWeeklyPlannerPrompt,
-  buildDayPlannerPrompt
+  buildDayPlannerPrompt,
+  buildInstructionsPrompt
 } from "./planner-prompts.js";
 
 dotenv.config();
@@ -197,6 +198,44 @@ app.post("/generate-day-plan", async (req, res) => {
   } catch (error) {
     console.error("❌ Failed to generate day plan:", error.message || error);
     res.status(500).json({ success: false, error: "Failed to generate day plan." });
+  }
+});
+
+/**
+ * 👨🏻‍🍳 New /generate-instructions route
+ */
+app.post("/generate-instructions", async (req, res) => {
+  const { title, tags = [], flavorProfile = {}, plannerInput = {} } = req.body;
+
+  if (!title) {
+    return res.status(400).json({ success: false, error: "Missing meal title" });
+  }
+
+  console.log("📥 /generate-instructions payload:", { title, tags, plannerInput });
+
+  try {
+    const userMessage = buildInstructionsPrompt(title, flavorProfile, tags, plannerInput);
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: buildSystemPrompt(flavorProfile) },
+        { role: "user", content: userMessage }
+      ],
+      temperature: 0.7,
+      max_tokens: 1000
+    });
+
+    let output = completion.choices[0].message.content.trim();
+
+    if (output.startsWith("```")) {
+      output = output.replace(/```(?:markdown)?/i, "").replace(/```$/, "").trim();
+    }
+
+    res.json({ instructions: output });
+  } catch (error) {
+    console.error("❌ Error generating instructions:", error.message);
+    res.status(500).json({ error: "Failed to generate meal instructions." });
   }
 });
 
