@@ -55,11 +55,39 @@ Inputs to reflect in this plan:`;
 
   prompt += `
 
+For each meal, return:
+- A short, specific **title** — like something you'd see on a menu (“Zesty Harissa Chicken Bowl” or “Lemon Ricotta Pancakes with Berries”)
+- A flavorful, crave-worthy **description** — 1–2 sentences capturing the vibe, flavor profile, key ingredients, or inspiration (just like a menu blurb)
+- A thoughtful list of **tags** — 4–6 useful descriptors based on flavor, nutrition, prep style, or cuisine. These help guide cooking instructions and enable smart filtering when saving to the user's recipe notebook.
+
+You can use tags like:
+- **Special Instructions**: "meal prep friendly", "make ahead", "dinner party", "date night", "beginner friendly", "fancy"
+- **Nutrition & function**: “high protein”, “macro friendly”, “low carb”, “meal prep”, “fat loss friendly”
+- **Flavor & style**: “comfort food”, “light and fresh”, “bold flavors”, “sweet and savory”
+- **Cultural cues**: “mexican inspired”, “mediterranean”, “thai flavors”, “southern style”
+- **Prep method or vibe**: “one pan”, “quick and simple”, “grill-ready”, “slow cooker”, "20 mins", "air-fryer"
+
+---
+
+Example meal object:
+{
+  "mealType": "Dinner",
+  "title": "Spicy Harissa Chicken Bowl",
+  "description": "Tender grilled chicken coated in smoky harissa, served over couscous with roasted vegetables and a citrusy yogurt drizzle.",
+  "tags": ["high protein", "meal prep", "north african inspired", "bold flavors", "quick and simple"]
+}
+
 Respond with ONLY valid JSON like:
 {
-  "2025-07-29": [{ "mealType": "Breakfast", "title": "..." }, ...],
-  "2025-07-30": [...],
-  ...
+  "2025-07-29": [
+    {
+      "mealType": "Breakfast",
+      "title": "Spicy Harissa Chicken Bowl",
+      "description": "Tender grilled chicken coated in harissa over couscous with roasted vegetables and a citrusy yogurt sauce.",
+      "tags": ["high protein", "meal prep", "north african inspired", "bold flavors"]
+    },
+    ...
+  ]
 }`;
 
   return prompt;
@@ -112,10 +140,37 @@ Inputs to reflect in today's plan:`;
 
   prompt += `
 
+For each meal, return:
+- A short, specific **title** — like something you'd see on a menu (“Zesty Harissa Chicken Bowl” or “Lemon Ricotta Pancakes with Berries”)
+- A flavorful, crave-worthy **description** — 1–2 sentences capturing the vibe, flavor profile, key ingredients, or inspiration (just like a menu blurb)
+- A thoughtful list of **tags** — 4–6 useful descriptors based on flavor, nutrition, prep style, or cuisine. These help guide cooking instructions and enable smart filtering when saving to the user's recipe notebook.
+
+You can use tags like:
+- **Special Instructions**: "meal prep friendly", "make ahead", "dinner party", "date night", "beginner friendly", "fancy"
+- **Nutrition & function**: “high protein”, “macro friendly”, “low carb”, “meal prep”, “fat loss friendly”
+- **Flavor & style**: “comfort food”, “light and fresh”, “bold flavors”, “sweet and savory”
+- **Cultural cues**: “mexican inspired”, “mediterranean”, “thai flavors”, “southern style”
+- **Prep method or vibe**: “one pan”, “quick and simple”, “grill-ready”, “slow cooker”, "20 mins", "air-fryer"
+
+---
+
+Example meal object:
+{
+  "mealType": "Dinner",
+  "title": "Spicy Harissa Chicken Bowl",
+  "description": "Tender grilled chicken coated in smoky harissa, served over couscous with roasted vegetables and a citrusy yogurt drizzle.",
+  "tags": ["high protein", "meal prep", "north african inspired", "bold flavors", "quick and simple"]
+}
+
 Respond with ONLY valid JSON like:
 [
-  { "mealType": "Lunch", "title": "..." },
-  { "mealType": "Dinner", "title": "..." }
+  {
+    "mealType": "Lunch",
+    "title": "...",
+    "description": "...",
+    "tags": ["...", "..."]
+  },
+  ...
 ]`;
 
   return prompt;
