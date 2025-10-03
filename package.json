@@ -14,5 +14,6 @@
     "express-rate-limit": "^7.5.0",
     "openai": "^4.96.0",
     "firebase-admin": "^11.10.1"
+    "stripe": "^16.0.0"
   }
 }
