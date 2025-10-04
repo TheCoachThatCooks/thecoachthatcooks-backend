@@ -93,7 +93,6 @@ app.post("/api/checkout/session", async (req, res) => {
 
       // collect a card now so Stripe can charge on Jan 1
       payment_method_collection: "always",
-      customer_creation: "always",
 
       // collect phone number inside Checkout
       phone_number_collection: { enabled: true },
@@ -140,7 +139,6 @@ app.get("/checkout/start", async (req, res) => {
       mode: "subscription",
       line_items: [{ price: PRICE_ID, quantity: 1 }],
       payment_method_collection: "always",
-      customer_creation: "always",
       phone_number_collection: { enabled: true },
       custom_text: {
         submit: {
