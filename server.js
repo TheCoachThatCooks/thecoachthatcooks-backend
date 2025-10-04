@@ -11,6 +11,8 @@ import {
   buildDayPlannerPrompt,
   buildInstructionsPrompt
 } from "./planner-prompts.js";
+import Stripe from "stripe";
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 dotenv.config();
 
@@ -33,7 +35,9 @@ app.use(
   cors({
     origin: [
       "https://thecoachthatcooks-ai.netlify.app",
-      "https://staging--thecoachthatcooks-ai.netlify.app"
+      "https://staging--thecoachthatcooks-ai.netlify.app",
+      "https://fitfoodlovers.com",
+      "https://www.fitfoodlovers.com"
     ],
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -64,6 +68,109 @@ const limiter = rateLimit({
   message: "Too many requests from this IP, please try again after 15 minutes",
 });
 app.use(limiter);
+
+// POST /api/checkout/session
+// Creates a Stripe Checkout Session for your $10/mo plan.
+// - Collects a card now
+// - Sets trial_end to midnight Jan 1 (Eastern) if that’s in the future
+app.post("/api/checkout/session", async (req, res) => {
+  try {
+    const PRICE_ID = process.env.PRICE_ID; // your $10/mo Price ID from Stripe
+    if (!PRICE_ID) {
+      return res.status(500).json({ error: "Missing PRICE_ID env var on the server" });
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const trialEnd = nextJan1UnixEastern();
+    const subscription_data = {};
+    if (trialEnd > now) {
+      subscription_data.trial_end = trialEnd; // absolute calendar date
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      line_items: [{ price: PRICE_ID, quantity: 1 }],
+
+      // collect a card now so Stripe can charge on Jan 1
+      payment_method_collection: "always",
+      customer_creation: "always",
+
+      // collect phone number inside Checkout
+      phone_number_collection: { enabled: true },
+
+      // reassuring text right in the Checkout button area
+      custom_text: {
+        submit: {
+          message: subscription_data.trial_end
+            ? "Free until Jan 1. You won’t be charged today."
+            : "Billing starts immediately."
+        }
+      },
+
+      subscription_data,
+
+      // TODO: set these to your real routes/pages
+      success_url:
+        "https://thecoachthatcooks-ai.netlify.app/success?session_id={CHECKOUT_SESSION_ID}",
+      cancel_url: "https://thecoachthatcooks-ai.netlify.app/cancel"
+    });
+
+    res.json({ url: session.url });
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// GET /checkout/start  → creates a session and redirects to Stripe Checkout
+app.get("/checkout/start", async (req, res) => {
+  try {
+    const PRICE_ID = process.env.PRICE_ID;
+    if (!PRICE_ID) return res.status(500).send("Missing PRICE_ID");
+
+    const now = Math.floor(Date.now() / 1000);
+    const trialEnd = nextJan1UnixEastern();
+    const subscription_data = {};
+    if (trialEnd > now) subscription_data.trial_end = trialEnd;
+
+    // Optional: capture simple attribution from query string
+    const { utm_source = "", utm_medium = "", utm_campaign = "", source = "ghl" } = req.query;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      line_items: [{ price: PRICE_ID, quantity: 1 }],
+      payment_method_collection: "always",
+      customer_creation: "always",
+      phone_number_collection: { enabled: true },
+      custom_text: {
+        submit: {
+          message: subscription_data.trial_end
+            ? "Free until Jan 1. You won’t be charged today."
+            : "Billing starts immediately."
+        }
+      },
+      subscription_data,
+      metadata: { source, utm_source, utm_medium, utm_campaign },
+      success_url: "https://thecoachthatcooks-ai.netlify.app/success?session_id={CHECKOUT_SESSION_ID}",
+      cancel_url: "https://thecoachthatcooks-ai.netlify.app/cancel"
+    });
+
+    res.redirect(303, session.url); // redirect straight to Stripe
+  } catch (e) {
+    console.error(e);
+    res.status(400).send(e.message);
+  }
+});
+
+// Midnight Jan 1 in New York = 05:00:00 UTC (no DST on Jan 1)
+function nextJan1UnixEastern() {
+  const now = new Date();
+  const useNextYear =
+    now.getUTCMonth() > 0 || (now.getUTCMonth() === 0 && now.getUTCDate() > 1);
+  const year = useNextYear ? now.getUTCFullYear() + 1 : now.getUTCFullYear();
+  // 05:00:00Z corresponds to 00:00:00 Eastern on Jan 1
+  return Math.floor(Date.UTC(year, 0, 1, 5, 0, 0) / 1000);
+}
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
