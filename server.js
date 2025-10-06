@@ -110,7 +110,7 @@ app.post("/api/checkout/session", async (req, res) => {
 
       // TODO: set these to your real routes/pages
       success_url:
-        "https://thecoachthatcooks-ai.netlify.app/success?session_id={CHECKOUT_SESSION_ID}",
+        "https://thecoachthatcooks-ai.netlify.app/create-account.html?session_id={CHECKOUT_SESSION_ID}",
       cancel_url: "https://thecoachthatcooks-ai.netlify.app/cancel"
     });
 
@@ -149,7 +149,7 @@ app.get("/checkout/start", async (req, res) => {
       },
       subscription_data,
       metadata: { source, utm_source, utm_medium, utm_campaign },
-      success_url: "https://thecoachthatcooks-ai.netlify.app/success?session_id={CHECKOUT_SESSION_ID}",
+      success_url: "https://thecoachthatcooks-ai.netlify.app/create-account.html?session_id={CHECKOUT_SESSION_ID}",
       cancel_url: "https://thecoachthatcooks-ai.netlify.app/cancel"
     });
 
