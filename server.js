@@ -72,7 +72,7 @@ app.use(limiter);
 // POST /api/checkout/session
 // Creates a Stripe Checkout Session for your $10/mo plan.
 // - Collects a card now
-// - Sets trial_end to midnight Jan 1 (Eastern) if that’s in the future
+// - Sets trial_end to Jan 1 (9:00am Eastern) if that’s in the future
 app.post("/api/checkout/session", async (req, res) => {
   try {
     const PRICE_ID = process.env.PRICE_ID; // your $10/mo Price ID from Stripe
@@ -160,14 +160,13 @@ app.get("/checkout/start", async (req, res) => {
   }
 });
 
-// Midnight Jan 1 in New York = 05:00:00 UTC (no DST on Jan 1)
+// 9:00am Jan 1 in New York = 14:00:00 UTC
 function nextJan1UnixEastern() {
   const now = new Date();
   const useNextYear =
     now.getUTCMonth() > 0 || (now.getUTCMonth() === 0 && now.getUTCDate() > 1);
   const year = useNextYear ? now.getUTCFullYear() + 1 : now.getUTCFullYear();
-  // 05:00:00Z corresponds to 00:00:00 Eastern on Jan 1
-  return Math.floor(Date.UTC(year, 0, 1, 5, 0, 0) / 1000);
+  return Math.floor(Date.UTC(year, 0, 1, 14, 0, 0) / 1000); // 14:00Z = 9:00am ET
 }
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
