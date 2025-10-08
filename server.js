@@ -13,6 +13,7 @@ import {
 } from "./planner-prompts.js";
 import Stripe from "stripe";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+import { registerStripeWebhooks } from "./webhooks.js";
 
 dotenv.config();
 
@@ -57,6 +58,8 @@ if (!process.env.OPENAI_API_KEY || !process.env.ALLOWED_ORIGIN) {
   console.error("Missing required environment variables.");
   process.exit(1);
 }
+
+registerStripeWebhooks(app);
 
 app.use(express.json());
 
