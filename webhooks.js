@@ -1,0 +1,230 @@
+// webhooks.js (ESM)
+import express from "express";
+import bodyParser from "body-parser";
+import Stripe from "stripe";
+import admin from "firebase-admin";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const router = express.Router();
+
+/* ---------- Firestore (optional but recommended) ---------- */
+let db = null;
+try {
+  if (!admin.apps.length) {
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+      admin.initializeApp({
+        credential: admin.credential.cert(
+          JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
+        ),
+      });
+    } else {
+      admin.initializeApp(); // uses GOOGLE_APPLICATION_CREDENTIALS path if set
+    }
+  }
+  db = admin.firestore();
+} catch (e) {
+  console.warn("Firestore init skipped:", e.message);
+}
+
+/* ---------- Single route: Stripe Webhook (raw body!) ---------- */
+function registerStripeWebhooks(app) {
+  app.post(
+    "/api/stripe/webhook",
+    bodyParser.raw({ type: "application/json" }), // must be raw for signature
+    async (req, res) => {
+      const sig = req.headers["stripe-signature"];
+      let event;
+      try {
+        event = stripe.webhooks.constructEvent(
+          req.body,
+          sig,
+          process.env.STRIPE_WEBHOOK_SECRET
+        );
+      } catch (err) {
+        console.error("Webhook signature failed:", err.message);
+        return res.sendStatus(400);
+      }
+
+      try {
+        switch (event.type) {
+          case "checkout.session.completed": {
+            const s = event.data.object;
+            const email = s.customer_details?.email || "";
+            const name = s.customer_details?.name || "";
+            const phone = s.customer_details?.phone || "";
+            const customerId = s.customer;         // "cus_..."
+            const subscriptionId = s.subscription; // "sub_..."
+
+            await upsertGhlContactAndTrialOpp({
+              name, email, phone, customerId, subscriptionId,
+            });
+            await convertKitSubscribe({ email, firstName: name });
+
+            // Mirror basic subscription state into Firestore
+            let fields = { status: "trialing" };
+            if (subscriptionId) {
+              const sub = await stripe.subscriptions.retrieve(subscriptionId);
+              fields = {
+                status: sub.status,
+                trial_end: sub.trial_end || null,
+                current_period_end: sub.current_period_end || null,
+                priceId: sub.items?.data?.[0]?.price?.id || null,
+              };
+            }
+            await setStripeStatus(customerId, {
+              email, sessionId: s.id, ...fields,
+            });
+            await attachToUserIfExists(customerId, fields);
+            break;
+          }
+
+          case "customer.subscription.created":
+          case "customer.subscription.updated":
+          case "customer.subscription.deleted": {
+            const sub = event.data.object;
+            const customerId = sub.customer;
+            const fields = {
+              status: sub.status,
+              trial_end: sub.trial_end || null,
+              current_period_end: sub.current_period_end || null,
+              priceId: sub.items?.data?.[0]?.price?.id || null,
+            };
+            await setStripeStatus(customerId, fields);
+            await attachToUserIfExists(customerId, fields);
+            await moveGhlStageForStatus(customerId, fields.status);
+            break;
+          }
+
+          case "invoice.payment_succeeded": {
+            const customerId = event.data.object.customer;
+            await moveGhlStageForStatus(customerId, "active");
+            break;
+          }
+
+          case "invoice.payment_failed": {
+            const customerId = event.data.object.customer;
+            await moveGhlStageForStatus(customerId, "dunning");
+            break;
+          }
+        }
+        res.json({ received: true });
+      } catch (err) {
+        console.error("Webhook handler error:", err);
+        res.sendStatus(500);
+      }
+    }
+  );
+}
+
+/* ---------- GHL helpers (minimal) ---------- */
+async function upsertGhlContactAndTrialOpp({ name, email, phone, customerId, subscriptionId }) {
+  const token = process.env.GHL_ACCESS_TOKEN;
+  if (!token || !process.env.GHL_LOCATION_ID) return; // skip if not configured
+
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    Version: "2021-07-28",
+  };
+
+  // 1) Upsert contact
+  let contactId;
+  try {
+    const res = await fetch("https://services.leadconnectorhq.com/contacts/upsert", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        locationId: process.env.GHL_LOCATION_ID,
+        email,
+        phone,
+        firstName: name || "",
+        tags: ["FlavorCoach", "Checkout Completed", "Free until Jan 1"],
+        customFields: [
+          process.env.GHL_CF_STRIPE_CUSTOMER_ID ? { id: process.env.GHL_CF_STRIPE_CUSTOMER_ID, value: customerId } : null,
+          process.env.GHL_CF_STRIPE_SUBSCRIPTION_ID ? { id: process.env.GHL_CF_STRIPE_SUBSCRIPTION_ID, value: subscriptionId } : null,
+        ].filter(Boolean),
+      }),
+    });
+    const json = await res.json();
+    contactId = json?.contact?.id;
+  } catch (e) {
+    console.warn("GHL upsert skipped:", e.message);
+    return;
+  }
+
+  // 2) Create opportunity in “Trial” stage
+  const stageId = process.env.GHL_TRIAL_STAGE_ID;
+  if (contactId && process.env.GHL_PIPELINE_ID && stageId) {
+    try {
+      await fetch("https://services.leadconnectorhq.com/opportunities/", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          locationId: process.env.GHL_LOCATION_ID,
+          pipelineId: process.env.GHL_PIPELINE_ID,
+          pipelineStageId: stageId,
+          name: "FlavorCoach – $10/mo",
+          status: "open",
+          monetaryValue: 10,
+          contactId,
+        }),
+      });
+    } catch (e) {
+      console.warn("GHL opportunity skipped:", e.message);
+    }
+  }
+}
+
+// simple stage mapper; expand later to “find & move existing opportunity”
+async function moveGhlStageForStatus(_customerId, _status) {
+  return; // no-op for now; safe to add later
+}
+
+/* ---------- ConvertKit helper ---------- */
+async function convertKitSubscribe({ email, firstName }) {
+  const key = process.env.CONVERTKIT_API_KEY;
+  if (!key) return;
+  if (process.env.CONVERTKIT_FORM_ID) {
+    try {
+      await fetch(`https://api.convertkit.com/v3/forms/${process.env.CONVERTKIT_FORM_ID}/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: key, email, first_name: firstName || "" }),
+      });
+    } catch (e) {
+      console.warn("ConvertKit subscribe skipped:", e.message);
+    }
+  }
+  const tagIds = (process.env.CONVERTKIT_TAG_IDS || "")
+    .split(",").map(s => s.trim()).filter(Boolean);
+  for (const tagId of tagIds) {
+    try {
+      await fetch(`https://api.convertkit.com/v3/tags/${tagId}/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: key, email }),
+      });
+    } catch (e) {
+      console.warn("ConvertKit tag skipped:", e.message);
+    }
+  }
+}
+
+/* ---------- Firestore helpers ---------- */
+async function setStripeStatus(customerId, fields) {
+  if (!db || !customerId) return;
+  await db.collection("stripe_customers").doc(String(customerId)).set(
+    { ...fields, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+}
+
+async function attachToUserIfExists(customerId, subscriptionFields) {
+  if (!db || !customerId) return;
+  const snap = await db.collection("users").where("stripeCustomerId", "==", customerId).limit(1).get();
+  if (!snap.empty) {
+    await snap.docs[0].ref.set({ subscription: subscriptionFields }, { merge: true });
+  }
+}
+
+export { registerStripeWebhooks };
