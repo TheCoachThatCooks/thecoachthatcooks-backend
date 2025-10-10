@@ -159,6 +159,7 @@ async function upsertGhlContactAndTrialOpp({ name, email, phone, customerId, sub
   const stageId = process.env.GHL_TRIAL_STAGE_ID;
   if (contactId && pipelineId && stageId) {
     try {
+      console.log("GHL v1 create payload", { pipelineId, stageId, contactId, locationId });
       const res = await fetch("https://rest.gohighlevel.com/v1/opportunities/", {
         method: "POST",
         headers,
