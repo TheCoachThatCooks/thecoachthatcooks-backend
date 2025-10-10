@@ -177,7 +177,10 @@ async function upsertGhlContactAndTrialOpp({ name, email, phone, customerId, sub
       console.log("GHL v1 create opportunity:", res.status, text.slice(0, 400));
     } catch (e) {
       console.warn("GHL v1 opportunity failed:", e.message);
-    }
+      }
+  } else {
+    // Optional: helps spot missing envs or contactId
+    console.warn("GHL v1 create skipped: missing value(s)", { pipelineId, stageId, contactId });
   }
 
   function safeJson(t) { try { return JSON.parse(t); } catch { return {}; } }
