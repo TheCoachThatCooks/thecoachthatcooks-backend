@@ -119,60 +119,67 @@ function registerStripeWebhooks(app) {
 /* ---------- GHL helpers (minimal) ---------- */
 async function upsertGhlContactAndTrialOpp({ name, email, phone, customerId, subscriptionId }) {
   const token = process.env.GHL_ACCESS_TOKEN;
-  if (!token || !process.env.GHL_LOCATION_ID) return; // skip if not configured
+  const locationId = process.env.GHL_LOCATION_ID;
+  if (!token || !locationId) return;
 
   const headers = {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
-    Version: "2021-07-28",
+    Accept: "application/json",
+    LocationId: locationId, // v1 requires this header
   };
 
-  // 1) Upsert contact
+  // 1) Upsert contact (v1)
   let contactId;
   try {
-    const res = await fetch("https://services.leadconnectorhq.com/contacts/upsert", {
+    const res = await fetch("https://rest.gohighlevel.com/v1/contacts/", {
       method: "POST",
       headers,
       body: JSON.stringify({
-        locationId: process.env.GHL_LOCATION_ID,
         email,
-        phone,
-        firstName: name || "",
+        firstName: (name || "").split(/\s+/)[0] || "",
+        phone: phone || undefined,
         tags: ["FlavorCoach", "Checkout Completed", "Free until Jan 1"],
-        customFields: [
-          process.env.GHL_CF_STRIPE_CUSTOMER_ID ? { id: process.env.GHL_CF_STRIPE_CUSTOMER_ID, value: customerId } : null,
-          process.env.GHL_CF_STRIPE_SUBSCRIPTION_ID ? { id: process.env.GHL_CF_STRIPE_SUBSCRIPTION_ID, value: subscriptionId } : null,
-        ].filter(Boolean),
+        customField: {
+          // v1 supports custom fields by name if you mapped them; or skip if not needed yet
+        },
       }),
     });
-    const json = await res.json();
-    contactId = json?.contact?.id;
+    const text = await res.text();
+    console.log("GHL v1 upsert contact:", res.status, text.slice(0, 400));
+    const json = safeJson(text);
+    contactId = json?.contact?.id || json?.id || json?.data?.id;
   } catch (e) {
-    console.warn("GHL upsert skipped:", e.message);
+    console.warn("GHL v1 upsert failed:", e.message);
     return;
   }
 
-  // 2) Create opportunity in “Trial” stage
+  // 2) Create opportunity in Trial stage (v1)
+  const pipelineId = process.env.GHL_PIPELINE_ID;
   const stageId = process.env.GHL_TRIAL_STAGE_ID;
-  if (contactId && process.env.GHL_PIPELINE_ID && stageId) {
+  if (contactId && pipelineId && stageId) {
     try {
-      await fetch("https://services.leadconnectorhq.com/opportunities/", {
+      const res = await fetch("https://rest.gohighlevel.com/v1/opportunities/", {
         method: "POST",
         headers,
         body: JSON.stringify({
-          locationId: process.env.GHL_LOCATION_ID,
-          pipelineId: process.env.GHL_PIPELINE_ID,
-          pipelineStageId: stageId,
           name: "FlavorCoach – $10/mo",
-          status: "open",
           monetaryValue: 10,
+          status: "open",
+          pipelineId,
+          pipelineStageId: stageId,
           contactId,
+          // location is implied by LocationId header
         }),
       });
+      const text = await res.text();
+      console.log("GHL v1 create opportunity:", res.status, text.slice(0, 400));
     } catch (e) {
-      console.warn("GHL opportunity skipped:", e.message);
+      console.warn("GHL v1 opportunity failed:", e.message);
     }
   }
+
+  function safeJson(t) { try { return JSON.parse(t); } catch { return {}; } }
 }
 
 // simple stage mapper; expand later to “find & move existing opportunity”
