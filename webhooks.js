@@ -169,7 +169,7 @@ async function upsertGhlContactAndTrialOpp({ name, email, phone, customerId, sub
           pipelineId,
           stageId,
           contactId,
-          // location is implied by LocationId header
+          locationId,          
         }),
       });
       const text = await res.text();
