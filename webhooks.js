@@ -167,7 +167,7 @@ async function upsertGhlContactAndTrialOpp({ name, email, phone, customerId, sub
           monetaryValue: 10,
           status: "open",
           pipelineId,
-          pipelineStageId: stageId,
+          stageId,
           contactId,
           // location is implied by LocationId header
         }),
