@@ -4,6 +4,67 @@ import bodyParser from "body-parser";
 import Stripe from "stripe";
 import admin from "firebase-admin";
 
+async function logGhlPipelinesAndStagesOnce() {
+  try {
+    const v2 = process.env.GHL_V2_ACCESS_TOKEN;
+    const loc = process.env.GHL_LOCATION_ID;
+    const wantPipeline = process.env.GHL_PIPELINE_ID;
+
+    if (!v2 || !loc) {
+      console.warn("[GHL DEBUG] Missing GHL_V2_ACCESS_TOKEN or GHL_LOCATION_ID");
+      return;
+    }
+
+    const baseHeaders = {
+      Authorization: `Bearer ${v2}`,
+      Version: "2021-07-28",
+      Accept: "application/json",
+      LocationId: loc,
+    };
+
+    // 1) List pipelines this token can see for this Location
+    const pRes = await fetch("https://services.leadconnectorhq.com/v2/pipelines/", { headers: baseHeaders });
+    const pTxt = await pRes.text();
+    if (!pRes.ok) {
+      console.warn("[GHL DEBUG] Pipelines list failed:", pRes.status, pTxt.slice(0, 400));
+      return;
+    }
+    const pipelines = JSON.parse(pTxt)?.pipelines || JSON.parse(pTxt)?.data || JSON.parse(pTxt);
+    console.log("[GHL DEBUG] Pipelines for Location", loc, pipelines);
+
+    // 2) For each pipeline, list stages
+    for (const p of pipelines || []) {
+      const pid = p.id || p.pipelineId;
+      const name = p.name || p.title;
+      const sRes = await fetch(`https://services.leadconnectorhq.com/v2/pipelines/${encodeURIComponent(pid)}/stages`, {
+        headers: baseHeaders,
+      });
+      const sTxt = await sRes.text();
+      if (!sRes.ok) {
+        console.warn(`[GHL DEBUG] Stages list failed for pipeline ${pid} (${name}):`, sRes.status, sTxt.slice(0, 400));
+        continue;
+      }
+      const stages = JSON.parse(sTxt)?.stages || JSON.parse(sTxt)?.data || JSON.parse(sTxt);
+      console.log(`[GHL DEBUG] Stages for pipeline ${pid} (${name}):`);
+      for (const st of stages || []) {
+        console.log("  -", st.id, "→", st.name || st.title);
+      }
+    }
+
+    // 3) Quick summary of what you *configured*
+    console.log("[GHL DEBUG] Your envs:", {
+      GHL_LOCATION_ID: loc,
+      GHL_PIPELINE_ID: wantPipeline,
+      GHL_TRIAL_STAGE_ID: process.env.GHL_TRIAL_STAGE_ID,
+    });
+  } catch (e) {
+    console.warn("[GHL DEBUG] error:", e.message);
+  }
+}
+
+// call once at startup:
+logGhlPipelinesAndStagesOnce();
+
 // --- GHL config (v1 = contacts, v2 = opportunities) ---
 const GHL_LOCATION_ID     = process.env.GHL_LOCATION_ID;
 const GHL_V1_API_KEY      = process.env.GHL_V1_API_KEY;        // Business Profile API key (v1)
