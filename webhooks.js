@@ -154,34 +154,44 @@ async function upsertGhlContactAndTrialOpp({ name, email, phone, customerId, sub
     return;
   }
 
-  // 2) Create opportunity in Trial stage (v1)
-  const pipelineId = process.env.GHL_PIPELINE_ID;
-  const stageId = process.env.GHL_TRIAL_STAGE_ID;
-  if (contactId && pipelineId && stageId) {
-    try {
-      console.log("GHL v1 create payload", { pipelineId, stageId, contactId, locationId });
-      const res = await fetch("https://rest.gohighlevel.com/v1/opportunities/", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          name: "FlavorCoach – $10/mo",
-          monetaryValue: 10,
-          status: "open",
-          pipelineId,
-          stageId,
-          contactId,
-          locationId,          
-        }),
-      });
-      const text = await res.text();
-      console.log("GHL v1 create opportunity:", res.status, text.slice(0, 400));
-    } catch (e) {
-      console.warn("GHL v1 opportunity failed:", e.message);
-      }
-  } else {
-    // Optional: helps spot missing envs or contactId
-    console.warn("GHL v1 create skipped: missing value(s)", { pipelineId, stageId, contactId });
+// 2) Create opportunity in Trial stage (v2)
+const pipelineId = process.env.GHL_PIPELINE_ID;           // same as before
+const pipelineStageId = process.env.GHL_TRIAL_STAGE_ID;   // NOTE: field is pipelineStageId on v2
+
+if (contactId && pipelineId && pipelineStageId) {
+  try {
+    const v2Headers = {
+      Authorization: `Bearer ${token}`,     // same token you used for v1
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      LocationId: locationId,               // MUST be header on v2
+      Version: "2021-07-28"                 // v2 requires a Version header
+    };
+
+    console.log("GHL v2 create payload", { pipelineId, pipelineStageId, contactId, locationId });
+
+    const res = await fetch("https://services.leadconnectorhq.com/v2/opportunities/", {
+      method: "POST",
+      headers: v2Headers,
+      body: JSON.stringify({
+        contactId,
+        name: "FlavorCoach – $10/mo",
+        status: "open",
+        monetaryValue: 10,
+        pipelineId,
+        pipelineStageId
+      }),
+    });
+
+    const text = await res.text();
+    console.log("GHL v2 create opportunity:", res.status, text.slice(0, 400));
+    if (!res.ok) throw new Error(`GHL v2 opportunity failed ${res.status} ${text}`);
+  } catch (e) {
+    console.warn("GHL v2 opportunity error:", e.message);
   }
+} else {
+  console.warn("GHL v2 create skipped: missing value(s)", { pipelineId, pipelineStageId, contactId });
+}
 
   function safeJson(t) { try { return JSON.parse(t); } catch { return {}; } }
 }
