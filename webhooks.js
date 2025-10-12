@@ -4,6 +4,16 @@ import bodyParser from "body-parser";
 import Stripe from "stripe";
 import admin from "firebase-admin";
 
+// --- GHL config (v1 = contacts, v2 = opportunities) ---
+const GHL_LOCATION_ID     = process.env.GHL_LOCATION_ID;
+const GHL_V1_API_KEY      = process.env.GHL_V1_API_KEY;        // Business Profile API key (v1)
+const GHL_V2_ACCESS_TOKEN = process.env.GHL_V2_ACCESS_TOKEN;   // Private Integration token (v2)
+
+// Optional safety logs (won't crash)
+if (!GHL_LOCATION_ID)     console.warn("Missing GHL_LOCATION_ID");
+if (!GHL_V1_API_KEY)      console.warn("Missing GHL_V1_API_KEY (v1 contacts)");
+if (!GHL_V2_ACCESS_TOKEN) console.warn("Missing GHL_V2_ACCESS_TOKEN (v2 opportunities)");
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const router = express.Router();
 
@@ -118,31 +128,30 @@ function registerStripeWebhooks(app) {
 
 /* ---------- GHL helpers (minimal) ---------- */
 async function upsertGhlContactAndTrialOpp({ name, email, phone, customerId, subscriptionId }) {
-  const token = process.env.GHL_ACCESS_TOKEN;
-  const locationId = process.env.GHL_LOCATION_ID;
-  if (!token || !locationId) return;
+  // ----- v1: upsert contact -----
+  if (!GHL_V1_API_KEY || !GHL_LOCATION_ID) {
+    console.warn("Skip GHL v1 upsert: missing GHL_V1_API_KEY or GHL_LOCATION_ID");
+    return;
+  }
 
-  const headers = {
-    Authorization: `Bearer ${token}`,
+  const v1Headers = {
+    Authorization: `Bearer ${GHL_V1_API_KEY}`,
     "Content-Type": "application/json",
     Accept: "application/json",
-    LocationId: locationId, // v1 requires this header
+    LocationId: GHL_LOCATION_ID, // v1 accepts/uses this header
   };
 
-  // 1) Upsert contact (v1)
   let contactId;
   try {
     const res = await fetch("https://rest.gohighlevel.com/v1/contacts/", {
       method: "POST",
-      headers,
+      headers: v1Headers,
       body: JSON.stringify({
         email,
         firstName: (name || "").split(/\s+/)[0] || "",
         phone: phone || undefined,
         tags: ["FlavorCoach", "Checkout Completed", "Free until Jan 1"],
-        customField: {
-          // v1 supports custom fields by name if you mapped them; or skip if not needed yet
-        },
+        // customField: {} // keep commented until you map fields
       }),
     });
     const text = await res.text();
@@ -151,49 +160,65 @@ async function upsertGhlContactAndTrialOpp({ name, email, phone, customerId, sub
     contactId = json?.contact?.id || json?.id || json?.data?.id;
   } catch (e) {
     console.warn("GHL v1 upsert failed:", e.message);
+    return; // don’t try to create an opp without a contact
+  }
+
+  // ----- v2: create opportunity in Trial stage -----
+  const pipelineId = process.env.GHL_PIPELINE_ID;
+  const pipelineStageId = process.env.GHL_TRIAL_STAGE_ID;
+
+  if (!GHL_V2_ACCESS_TOKEN || !GHL_LOCATION_ID) {
+    console.warn("Skip GHL v2 opportunity: missing GHL_V2_ACCESS_TOKEN or GHL_LOCATION_ID");
     return;
   }
 
-// 2) Create opportunity in Trial stage (v2)
-const pipelineId = process.env.GHL_PIPELINE_ID;           // same as before
-const pipelineStageId = process.env.GHL_TRIAL_STAGE_ID;   // NOTE: field is pipelineStageId on v2
+  if (contactId && pipelineId && pipelineStageId) {
+    try {
+      const v2Headers = {
+        Authorization: `Bearer ${GHL_V2_ACCESS_TOKEN}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        LocationId: GHL_LOCATION_ID, // header (required)
+        Version: "2021-07-28",
+      };
 
-if (contactId && pipelineId && pipelineStageId) {
-  try {
-    const v2Headers = {
-      Authorization: `Bearer ${token}`,     // same token you used for v1
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      LocationId: locationId,               // MUST be header on v2
-      Version: "2021-07-28"                 // v2 requires a Version header
-    };
-
-    console.log("GHL v2 create payload", { pipelineId, pipelineStageId, contactId, locationId });
-
-    const res = await fetch("https://services.leadconnectorhq.com/v2/opportunities/", {
-      method: "POST",
-      headers: v2Headers,
-      body: JSON.stringify({
-        contactId,
-        name: "FlavorCoach – $10/mo",
-        status: "open",
-        monetaryValue: 10,
+      console.log("GHL v2 create payload", {
         pipelineId,
-        pipelineStageId
-      }),
+        pipelineStageId,
+        contactId,
+        locationId: GHL_LOCATION_ID,
+      });
+
+      const res = await fetch("https://services.leadconnectorhq.com/v2/opportunities/", {
+        method: "POST",
+        headers: v2Headers,
+        body: JSON.stringify({
+          contactId,
+          name: "FlavorCoach – $10/mo",
+          status: "open",
+          monetaryValue: 10,
+          pipelineId,
+          pipelineStageId, // NOTE: v2 uses pipelineStageId
+        }),
+      });
+
+      const text = await res.text();
+      console.log("GHL v2 create opportunity:", res.status, text.slice(0, 400));
+      if (!res.ok) throw new Error(`GHL v2 opportunity failed ${res.status} ${text}`);
+    } catch (e) {
+      console.warn("GHL v2 opportunity error:", e.message);
+    }
+  } else {
+    console.warn("GHL v2 create skipped: missing value(s)", {
+      contactId,
+      pipelineId,
+      pipelineStageId,
     });
-
-    const text = await res.text();
-    console.log("GHL v2 create opportunity:", res.status, text.slice(0, 400));
-    if (!res.ok) throw new Error(`GHL v2 opportunity failed ${res.status} ${text}`);
-  } catch (e) {
-    console.warn("GHL v2 opportunity error:", e.message);
   }
-} else {
-  console.warn("GHL v2 create skipped: missing value(s)", { pipelineId, pipelineStageId, contactId });
-}
 
-  function safeJson(t) { try { return JSON.parse(t); } catch { return {}; } }
+  function safeJson(t) {
+    try { return JSON.parse(t); } catch { return {}; }
+  }
 }
 
 // simple stage mapper; expand later to “find & move existing opportunity”
