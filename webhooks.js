@@ -17,18 +17,27 @@ async function logGhlV1PipelinesAndStagesOnce() {
       LocationId: loc,
     };
 
+    // Pipelines (v1)
     const pRes = await fetch("https://rest.gohighlevel.com/v1/pipelines/", { headers: h });
     const pTxt = await pRes.text();
     if (!pRes.ok) { console.warn("[GHL V1 DEBUG] pipelines failed:", pRes.status, pTxt.slice(0,300)); return; }
-    const pipelines = JSON.parse(pTxt);
+
+    let pJson;
+    try { pJson = JSON.parse(pTxt); } catch { pJson = pTxt; }
+    const pipelines = Array.isArray(pJson) ? pJson : (pJson?.pipelines || pJson?.data || []);
     console.log("[GHL V1 DEBUG] Pipelines:", pipelines.map(p => ({ id: p.id, name: p.name })));
 
+    // Stages per pipeline (v1)
     for (const p of pipelines) {
-      const sRes = await fetch(`https://rest.gohighlevel.com/v1/pipelines/${encodeURIComponent(p.id)}/stages`, { headers: h });
+      const pid = p.id;
+      const sRes = await fetch(`https://rest.gohighlevel.com/v1/pipelines/${encodeURIComponent(pid)}/stages`, { headers: h });
       const sTxt = await sRes.text();
-      if (!sRes.ok) { console.warn(`[GHL V1 DEBUG] stages failed for ${p.id}:`, sRes.status, sTxt.slice(0,300)); continue; }
-      const stages = JSON.parse(sTxt);
-      console.log(`[GHL V1 DEBUG] Stages for ${p.id} (${p.name}):`, stages.map(s => ({ id: s.id, name: s.name })));
+      if (!sRes.ok) { console.warn(`[GHL V1 DEBUG] stages failed for ${pid}:`, sRes.status, sTxt.slice(0,300)); continue; }
+
+      let sJson;
+      try { sJson = JSON.parse(sTxt); } catch { sJson = sTxt; }
+      const stages = Array.isArray(sJson) ? sJson : (sJson?.stages || sJson?.data || []);
+      console.log(`[GHL V1 DEBUG] Stages for ${pid} (${p.name}):`, stages.map(s => ({ id: s.id, name: s.name })));
     }
   } catch (e) {
     console.warn("[GHL V1 DEBUG] error:", e.message);
