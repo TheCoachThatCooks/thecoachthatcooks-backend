@@ -4,6 +4,54 @@ import bodyParser from "body-parser";
 import Stripe from "stripe";
 import admin from "firebase-admin";
 
+// ---- Resolve a v1 stageId by stage NAME (e.g., "Trial"); caches result ----
+const _stageIdCache = new Map();
+
+async function resolveV1StageIdByName({ pipelineId, stageName }) {
+  const key = `${pipelineId}::${stageName}`;
+  if (_stageIdCache.has(key)) return _stageIdCache.get(key);
+
+  const v1Key = (process.env.GHL_V1_API_KEY || "").trim();
+  const loc   = (process.env.GHL_LOCATION_ID || "").trim();
+  if (!v1Key || !loc) throw new Error("Missing GHL_V1_API_KEY or GHL_LOCATION_ID");
+
+  const headers = {
+    Authorization: `Bearer ${v1Key}`,
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    LocationId: loc,
+  };
+
+  // Try 1: learn stageId from existing opportunities in this pipeline
+  const r = await fetch(`https://rest.gohighlevel.com/v1/opportunities/?pipelineId=${encodeURIComponent(pipelineId)}&limit=100`, { headers });
+  const t = await r.text();
+  if (!r.ok) throw new Error(`List opps failed ${r.status} ${t.slice(0,200)}`);
+  let j; try { j = JSON.parse(t); } catch { j = []; }
+  const opps = Array.isArray(j) ? j : (j?.opportunities || j?.data || []);
+  let hit = opps.find(o => (o.stageName || "").toLowerCase() === stageName.toLowerCase());
+  if (hit?.stageId) {
+    _stageIdCache.set(key, hit.stageId);
+    console.log("[GHL V1] resolved stageId from opps:", { pipelineId, stageName, stageId: hit.stageId });
+    return hit.stageId;
+  }
+
+  // Try 2: some tenants expose stages on the pipeline object
+  const rp = await fetch(`https://rest.gohighlevel.com/v1/pipelines/${encodeURIComponent(pipelineId)}`, { headers });
+  const tp = await rp.text();
+  if (rp.ok) {
+    let pj; try { pj = JSON.parse(tp); } catch { pj = {}; }
+    const stages = pj?.stages || pj?.pipeline?.stages || pj?.data?.stages || [];
+    const s = stages.find(s => (s.name || "").toLowerCase() === stageName.toLowerCase());
+    if (s?.id) {
+      _stageIdCache.set(key, s.id);
+      console.log("[GHL V1] resolved stageId from pipeline:", { pipelineId, stageName, stageId: s.id });
+      return s.id;
+    }
+  }
+
+  throw new Error(`Could not resolve v1 stageId for stage "${stageName}" in pipeline ${pipelineId}`);
+}
+
 async function logGhlV1PipelinesAndStagesOnce() {
   try {
     const key = (process.env.GHL_V1_API_KEY || "").trim();
@@ -266,58 +314,54 @@ async function upsertGhlContactAndTrialOpp({ name, email, phone, customerId, sub
     return; // don’t try to create an opp without a contact
   }
 
-  // ----- v2: create opportunity in Trial stage -----
-  const pipelineId = process.env.GHL_PIPELINE_ID;
-  const pipelineStageId = process.env.GHL_TRIAL_STAGE_ID;
+// ----- v1: create opportunity in Trial stage (using resolver) -----
+const pipelineId = process.env.GHL_PIPELINE_ID;
+const desiredStageName = (process.env.GHL_TRIAL_STAGE_NAME || "Trial").trim();
+// Optional: if you’ve *already* discovered & want to hardcode the v1 id, set GHL_TRIAL_STAGE_ID_V1
+let v1StageId = (process.env.GHL_TRIAL_STAGE_ID_V1 || "").trim();
 
-  if (!GHL_V2_ACCESS_TOKEN || !GHL_LOCATION_ID) {
-    console.warn("Skip GHL v2 opportunity: missing GHL_V2_ACCESS_TOKEN or GHL_LOCATION_ID");
-    return;
+if (!v1StageId) {
+  try {
+    v1StageId = await resolveV1StageIdByName({ pipelineId, stageName: desiredStageName });
+  } catch (e) {
+    console.warn("Stage resolve failed:", e.message);
   }
+}
 
-  if (contactId && pipelineId && pipelineStageId) {
-    try {
-      const v2Headers = {
-        Authorization: `Bearer ${GHL_V2_ACCESS_TOKEN}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        LocationId: GHL_LOCATION_ID, // header (required)
-        Version: "2021-07-28",
-      };
+if (contactId && pipelineId && v1StageId) {
+  try {
+    const v1Headers = {
+      Authorization: `Bearer ${GHL_V1_API_KEY}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      LocationId: GHL_LOCATION_ID,
+    };
 
-      console.log("GHL v2 create payload", {
+    console.log("GHL v1 create payload", { pipelineId, stageId: v1StageId, contactId });
+
+    const res = await fetch("https://rest.gohighlevel.com/v1/opportunities/", {
+      method: "POST",
+      headers: v1Headers,
+      body: JSON.stringify({
+        name: "FlavorCoach – $10/mo",
+        monetaryValue: 10,
+        status: "open",
         pipelineId,
-        pipelineStageId,
+        stageId: v1StageId,       // v1 needs a v1 stageId (not the UUID)
         contactId,
         locationId: GHL_LOCATION_ID,
-      });
-
-      const res = await fetch("https://services.leadconnectorhq.com/v2/opportunities/", {
-        method: "POST",
-        headers: v2Headers,
-        body: JSON.stringify({
-          contactId,
-          name: "FlavorCoach – $10/mo",
-          status: "open",
-          monetaryValue: 10,
-          pipelineId,
-          pipelineStageId, // NOTE: v2 uses pipelineStageId
-        }),
-      });
-
-      const text = await res.text();
-      console.log("GHL v2 create opportunity:", res.status, text.slice(0, 400));
-      if (!res.ok) throw new Error(`GHL v2 opportunity failed ${res.status} ${text}`);
-    } catch (e) {
-      console.warn("GHL v2 opportunity error:", e.message);
-    }
-  } else {
-    console.warn("GHL v2 create skipped: missing value(s)", {
-      contactId,
-      pipelineId,
-      pipelineStageId,
+      }),
     });
+
+    const text = await res.text();
+    console.log("GHL v1 create opportunity:", res.status, text.slice(0, 400));
+    if (!res.ok) throw new Error(`GHL v1 opportunity failed ${res.status} ${text}`);
+  } catch (e) {
+    console.warn("GHL v1 opportunity error:", e.message);
   }
+} else {
+  console.warn("GHL v1 create skipped: missing value(s)", { contactId, pipelineId, v1StageId });
+}
 
   function safeJson(t) {
     try { return JSON.parse(t); } catch { return {}; }
