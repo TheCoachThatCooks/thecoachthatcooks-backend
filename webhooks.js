@@ -4,7 +4,7 @@ import bodyParser from "body-parser";
 import Stripe from "stripe";
 import admin from "firebase-admin";
 
-// ---- Resolve a v1 stageId by stage NAME (e.g., "Trial"); caches result ----
+// ---- Resolve a v1 stageId by stage NAME (robust, with fallbacks) ----
 const _stageIdCache = new Map();
 
 async function resolveV1StageIdByName({ pipelineId, stageName }) {
@@ -22,34 +22,72 @@ async function resolveV1StageIdByName({ pipelineId, stageName }) {
     LocationId: loc,
   };
 
-  // Try 1: learn stageId from existing opportunities in this pipeline
-  const r = await fetch(`https://rest.gohighlevel.com/v1/opportunities/?pipelineId=${encodeURIComponent(pipelineId)}&limit=100`, { headers });
-  const t = await r.text();
-  if (!r.ok) throw new Error(`List opps failed ${r.status} ${t.slice(0,200)}`);
-  let j; try { j = JSON.parse(t); } catch { j = []; }
-  const opps = Array.isArray(j) ? j : (j?.opportunities || j?.data || []);
-  let hit = opps.find(o => (o.stageName || "").toLowerCase() === stageName.toLowerCase());
-  if (hit?.stageId) {
-    _stageIdCache.set(key, hit.stageId);
-    console.log("[GHL V1] resolved stageId from opps:", { pipelineId, stageName, stageId: hit.stageId });
-    return hit.stageId;
-  }
+  const matchName = s => (s || "").toLowerCase() === (stageName || "").toLowerCase();
 
-  // Try 2: some tenants expose stages on the pipeline object
-  const rp = await fetch(`https://rest.gohighlevel.com/v1/pipelines/${encodeURIComponent(pipelineId)}`, { headers });
-  const tp = await rp.text();
-  if (rp.ok) {
-    let pj; try { pj = JSON.parse(tp); } catch { pj = {}; }
-    const stages = pj?.stages || pj?.pipeline?.stages || pj?.data?.stages || [];
-    const s = stages.find(s => (s.name || "").toLowerCase() === stageName.toLowerCase());
-    if (s?.id) {
-      _stageIdCache.set(key, s.id);
-      console.log("[GHL V1] resolved stageId from pipeline:", { pipelineId, stageName, stageId: s.id });
-      return s.id;
+  // Try 1: filtered opps (some tenants 404 here)
+  try {
+    const r = await fetch(`https://rest.gohighlevel.com/v1/opportunities/?pipelineId=${encodeURIComponent(pipelineId)}&limit=100`, { headers });
+    const t = await r.text();
+    if (r.ok) {
+      let j; try { j = JSON.parse(t); } catch { j = []; }
+      const opps = Array.isArray(j) ? j : (j?.opportunities || j?.data || []);
+      const hit  = opps.find(o => matchName(o.stageName));
+      if (hit?.stageId) {
+        _stageIdCache.set(key, hit.stageId);
+        console.log("[GHL V1] resolved stageId from opps (filtered):", { stageName, stageId: hit.stageId });
+        return hit.stageId;
+      }
+    } else {
+      console.warn("[GHL V1] filtered opps 404/err:", r.status, t.slice(0,200));
     }
+  } catch (e) {
+    console.warn("[GHL V1] filtered opps error:", e.message);
   }
 
-  throw new Error(`Could not resolve v1 stageId for stage "${stageName}" in pipeline ${pipelineId}`);
+  // Try 2: unfiltered opps, then filter client-side
+  try {
+    const r2 = await fetch(`https://rest.gohighlevel.com/v1/opportunities/?limit=100`, { headers });
+    const t2 = await r2.text();
+    if (r2.ok) {
+      let j2; try { j2 = JSON.parse(t2); } catch { j2 = []; }
+      const opps2 = Array.isArray(j2) ? j2 : (j2?.opportunities || j2?.data || []);
+      // prefer matching pipeline + stage name
+      const hit2 = opps2.find(o => o.pipelineId === pipelineId && matchName(o.stageName))
+              || opps2.find(o => matchName(o.stageName));
+      if (hit2?.stageId) {
+        _stageIdCache.set(key, hit2.stageId);
+        console.log("[GHL V1] resolved stageId from opps (unfiltered):", { stageName, stageId: hit2.stageId });
+        return hit2.stageId;
+      }
+    } else {
+      console.warn("[GHL V1] unfiltered opps 404/err:", r2.status, t2.slice(0,200));
+    }
+  } catch (e) {
+    console.warn("[GHL V1] unfiltered opps error:", e.message);
+  }
+
+  // Try 3: pipeline object may include stages
+  try {
+    const rp = await fetch(`https://rest.gohighlevel.com/v1/pipelines/${encodeURIComponent(pipelineId)}`, { headers });
+    const tp = await rp.text();
+    if (rp.ok) {
+      let pj; try { pj = JSON.parse(tp); } catch { pj = {}; }
+      const stages = pj?.stages || pj?.pipeline?.stages || pj?.data?.stages || [];
+      const s = Array.isArray(stages) && stages.find(s => matchName(s.name));
+      if (s?.id) {
+        _stageIdCache.set(key, s.id);
+        console.log("[GHL V1] resolved stageId from pipeline object:", { stageName, stageId: s.id });
+        return s.id;
+      }
+      console.warn("[GHL V1] pipeline object had no matching stage name; keys:", Object.keys(pj||{}));
+    } else {
+      console.warn("[GHL V1] pipeline object err:", rp.status, tp.slice(0,200));
+    }
+  } catch (e) {
+    console.warn("[GHL V1] pipeline object fetch error:", e.message);
+  }
+
+  throw new Error(`Could not resolve v1 stageId for "${stageName}"`);
 }
 
 async function logGhlV1PipelinesAndStagesOnce() {
