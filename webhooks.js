@@ -32,37 +32,45 @@ const TAGS = {
   },
 };
 
-// --------------- GHL v1 upsert ----------------
+// --------------- GHL v1 upsert (reverted to your working endpoint) ---------------
 async function ghlV1UpsertContact({ email, firstName, lastName, phone, tags = [], customFields = {} }) {
   if (!email) { console.warn("[GHL upsert] skipped: missing email"); return; }
 
-  const apiKey = process.env.GHL_V1_API_KEY;
-  const locationId = process.env.GHL_LOCATION_ID;
+  const apiKey = (process.env.GHL_V1_API_KEY || "").trim();
+  const locationId = (process.env.GHL_LOCATION_ID || "").trim();
   if (!apiKey || !locationId) {
     console.error("[GHL upsert] Missing GHL_V1_API_KEY or GHL_LOCATION_ID");
     return;
   }
 
-  const payload = { email, firstName, lastName, phone, tags, customFields };
+  const payload = {
+    email,
+    firstName,
+    lastName,
+    phone,
+    tags,
+    // send custom fields exactly as named in GHL; safe to include
+    customFields,
+  };
 
-  const res = await fetch("https://rest.gohighlevel.com/v1/contacts/upsert", {
+  const res = await fetch("https://rest.gohighlevel.com/v1/contacts/", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       Accept: "application/json",
       "Content-Type": "application/json",
-      LocationId: locationId,
+      LocationId: locationId, // this header name matched your previous working file
     },
     body: JSON.stringify(payload),
   });
 
+  const text = await res.text();
   if (!res.ok) {
-    const text = await res.text();
     console.error("[GHL upsert] Failed:", res.status, text?.slice(0, 500));
     return;
   }
-  const data = await res.json().catch(() => ({}));
-  console.log("[GHL upsert] OK → contactId:", data?.contact?.id || "(unknown)");
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  console.log("[GHL upsert] OK → contactId:", data?.contact?.id || data?.id || "(unknown)");
   return data;
 }
 
