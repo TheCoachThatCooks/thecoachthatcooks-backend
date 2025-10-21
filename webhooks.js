@@ -74,6 +74,36 @@ async function ghlV1UpsertContact({ email, firstName, lastName, phone, tags = []
   return data;
 }
 
+/* ---------- ConvertKit helper ---------- */
+async function convertKitSubscribe({ email, firstName }) {
+  const key = process.env.CONVERTKIT_API_KEY;
+  if (!key) return;
+  if (process.env.CONVERTKIT_FORM_ID) {
+    try {
+      await fetch(`https://api.convertkit.com/v3/forms/${process.env.CONVERTKIT_FORM_ID}/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: key, email, first_name: firstName || "" }),
+      });
+    } catch (e) {
+      console.warn("ConvertKit subscribe skipped:", e.message);
+    }
+  }
+  const tagIds = (process.env.CONVERTKIT_TAG_IDS || "")
+    .split(",").map(s => s.trim()).filter(Boolean);
+  for (const tagId of tagIds) {
+    try {
+      await fetch(`https://api.convertkit.com/v3/tags/${tagId}/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: key, email }),
+      });
+    } catch (e) {
+      console.warn("ConvertKit tag skipped:", e.message);
+    }
+  }
+}
+
 // --------------- helpers ----------------
 function splitName(full = "") {
   const parts = (full || "").trim().split(/\s+/).filter(Boolean);
@@ -119,8 +149,9 @@ export function registerStripeWebhooks(app) {
 
           const tags = [TAGS.STABLE.TRIAL, TAGS.evt.cs(sessionId)];
 
-          await ghlV1UpsertContact({ email, firstName: first, lastName: last, phone, tags, customFields });
-          break;
+	  await ghlV1UpsertContact({ email, firstName: first, lastName: last, phone, tags, customFields });
+	  await convertKitSubscribe({ email, firstName: first });
+	  break;
         }
 
         // ======== READY LATER: ACTIVE (invoice success) ========
