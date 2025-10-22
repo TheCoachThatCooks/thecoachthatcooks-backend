@@ -32,7 +32,35 @@ const TAGS = {
   },
 };
 
-// --------------- GHL v1 upsert (reverted to your working endpoint) ---------------
+// --- GHL v1: lookup existing contact by email (for tag merge) ---
+async function ghlV1GetContactByEmail(email) {
+  const apiKey = (process.env.GHL_V1_API_KEY || "").trim();
+  const locationId = (process.env.GHL_LOCATION_ID || "").trim();
+  if (!apiKey || !locationId || !email) return null;
+
+  try {
+    const res = await fetch(
+      `https://rest.gohighlevel.com/v1/contacts/?query=${encodeURIComponent(email)}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "application/json",
+          LocationId: locationId,
+        },
+      }
+    );
+    if (!res.ok) return null;
+
+    const json = await res.json();
+    // v1 returns { contacts: [...] } or sometimes a single object; normalize to first match
+    return Array.isArray(json?.contacts) ? json.contacts[0] : (json?.contact || json || null);
+  } catch {
+    return null;
+  }
+}
+
+// --- GHL v1: upsert contact, but MERGE tags instead of overwriting ---
 async function ghlV1UpsertContact({ email, firstName, lastName, phone, tags = [], customFields = {} }) {
   if (!email) { console.warn("[GHL upsert] skipped: missing email"); return; }
 
@@ -43,14 +71,25 @@ async function ghlV1UpsertContact({ email, firstName, lastName, phone, tags = []
     return;
   }
 
+  // 1) Start with the new tags you want to add
+  let mergedTags = Array.from(new Set([...(tags || [])].map(t => String(t).trim()).filter(Boolean)));
+
+  // 2) Read existing tags (if any) and merge so we don't blow away e.g. done:fc:trial_checkout
+  try {
+    const existing = await ghlV1GetContactByEmail(email);
+    const existingTags = (existing?.tags || []).map(t => String(t).trim()).filter(Boolean);
+    mergedTags = Array.from(new Set([...existingTags, ...mergedTags]));
+  } catch (e) {
+    console.warn("[GHL upsert] existing tag merge skipped:", e?.message);
+  }
+
   const payload = {
     email,
     firstName,
     lastName,
     phone,
-    tags,
-    // send custom fields exactly as named in GHL; safe to include
-    customFields,
+    tags: mergedTags,           // <— send the MERGED list
+    customFields,               // unchanged
   };
 
   const res = await fetch("https://rest.gohighlevel.com/v1/contacts/", {
@@ -59,7 +98,7 @@ async function ghlV1UpsertContact({ email, firstName, lastName, phone, tags = []
       Authorization: `Bearer ${apiKey}`,
       Accept: "application/json",
       "Content-Type": "application/json",
-      LocationId: locationId, // this header name matched your previous working file
+      LocationId: locationId,
     },
     body: JSON.stringify(payload),
   });
