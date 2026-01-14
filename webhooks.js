@@ -54,14 +54,28 @@ async function ghlV1GetContactByEmail(email) {
 
     const json = await res.json();
     // v1 returns { contacts: [...] } or sometimes a single object; normalize to first match
-    return Array.isArray(json?.contacts) ? json.contacts[0] : (json?.contact || json || null);
+    const contacts = Array.isArray(json?.contacts) ? json.contacts : [];
+    const target = String(email || "").trim().toLowerCase();
+
+    // Exact match only (safer; avoids updating the wrong contact)
+    const exact = contacts.find(c => String(c?.email || "").trim().toLowerCase() === target);
+    return exact || null;
   } catch {
     return null;
   }
 }
 
 // --- GHL v1: upsert contact, but MERGE tags instead of overwriting ---
-async function ghlV1UpsertContact({ email, firstName, lastName, phone, tags = [], customFields = {} }) {
+async function ghlV1UpsertContact({
+  email,
+  firstName,
+  lastName,
+  phone,
+  tags = [],
+  customFields = {},
+  skipCreateIfMissing = false,
+  context = "",
+}) {
   if (!email) { console.warn("[GHL upsert] skipped: missing email"); return; }
 
   const apiKey = (process.env.GHL_V1_API_KEY || "").trim();
@@ -73,24 +87,36 @@ async function ghlV1UpsertContact({ email, firstName, lastName, phone, tags = []
 
   // 1) Start with the new tags you want to add
   let mergedTags = Array.from(new Set([...(tags || [])].map(t => String(t).trim()).filter(Boolean)));
+  let existingContactId = null;
 
   // 2) Read existing tags (if any) and merge so we don't blow away e.g. done:fc:trial_checkout
   try {
     const existing = await ghlV1GetContactByEmail(email);
+
+    existingContactId = existing?.id || null;
+  
     const existingTags = (existing?.tags || []).map(t => String(t).trim()).filter(Boolean);
     mergedTags = Array.from(new Set([...existingTags, ...mergedTags]));
   } catch (e) {
     console.warn("[GHL upsert] existing tag merge skipped:", e?.message);
   }
+  if (skipCreateIfMissing && !existingContactId) {
+    console.log("[GHL upsert] SKIP (no contact found; create disabled)", { email, context });
+    return;
+  }
+
 
   const payload = {
     email,
-    firstName,
-    lastName,
-    phone,
-    tags: mergedTags,           // <— send the MERGED list
-    customFields,               // unchanged
+    tags: mergedTags,     // <— send the MERGED list
+    customFields,         // unchanged
   };
+
+  // Only include these if we actually have values
+  // (prevents blank/undefined from wiping fields)
+  if (firstName) payload.firstName = firstName;
+  if (lastName) payload.lastName = lastName;
+  if (phone) payload.phone = phone;
 
   const res = await fetch("https://rest.gohighlevel.com/v1/contacts/", {
     method: "POST",
@@ -196,12 +222,35 @@ export function registerStripeWebhooks(app) {
         // ======== READY LATER: ACTIVE (invoice success) ========
         case "invoice.payment_succeeded": {
           const inv = event.data.object;
-          const email = inv?.customer_email || "";  // present for hosted Checkout invoices
-          if (!email) { console.warn("[Active] Missing email on invoice; skip upsert."); break; }
+          const amountPaid = inv?.amount_paid ?? 0; // cents
+
+          if (amountPaid <= 0) {
+            console.log("[Active] Skipping $0 invoice (likely trial start):", inv?.id);
+            break;
+          }
+
+          let email = inv?.customer_email || "";
+	  const customerId  = inv?.customer || "";     // cus_*
+
+	  // Fallback: invoices often don't carry customer_email reliably
+	  if (!email && customerId) {
+  	    try {
+    	      const customer = await stripe.customers.retrieve(customerId);
+    	      email = customer?.email || "";
+  	    } catch (e) {
+   	      console.warn("[Active] Could not fetch customer email", e?.message);
+  	    }
+	  }
+
+	  if (email && !inv?.customer_email) {
+	    console.log("[Active] Email recovered from Stripe customer:", email);
+	  }
+
+	  if (!email) { console.warn("[Active] Missing email on invoice; skip upsert."); break; }
+
 
           const invoiceId   = inv?.id || "";          // in_*
           const subId       = inv?.subscription || ""; // sub_*
-          const customerId  = inv?.customer || "";     // cus_*
 
           const customFields = {
             "Last Invoice ID": invoiceId,            // (create this field later if you want)
@@ -214,19 +263,39 @@ export function registerStripeWebhooks(app) {
           const tags = [TAGS.STABLE.ACTIVE, TAGS.evt.in(invoiceId)];
           if (subId) tags.push(TAGS.evt.sub(subId));
 
-          await ghlV1UpsertContact({ email, tags, customFields });
+          await ghlV1UpsertContact({
+	    email,
+	    tags,
+	    customFields,
+	    skipCreateIfMissing: true,
+  	    context: `invoice.payment_succeeded ${invoiceId}`,
+	  });
           break;
         }
 
         // ======== READY LATER: DUNNING (invoice failed) ========
         case "invoice.payment_failed": {
           const inv = event.data.object;
-          const email = inv?.customer_email || "";
-          if (!email) { console.warn("[Dunning] Missing email on invoice; skip upsert."); break; }
+          let email = inv?.customer_email || "";
+	  const customerId  = inv?.customer || ""; // cus_*
+
+	  if (!email && customerId) {
+	    try {
+	      const customer = await stripe.customers.retrieve(customerId);
+	      email = customer?.email || "";
+	    } catch (e) {
+	      console.warn("[Dunning] Could not fetch customer email", e?.message);
+	    }
+	  }
+
+	  if (email && !inv?.customer_email) {
+	    console.log("[Dunning] Email recovered from Stripe customer:", email);
+	  }
+
+	  if (!email) { console.warn("[Dunning] Missing email on invoice; skip upsert."); break; }
 
           const invoiceId   = inv?.id || "";
           const subId       = inv?.subscription || "";
-          const customerId  = inv?.customer || "";
 
           const customFields = {
             "Last Invoice ID": invoiceId,
@@ -239,7 +308,13 @@ export function registerStripeWebhooks(app) {
           const tags = [TAGS.STABLE.DUNNING, TAGS.evt.in(invoiceId)];
           if (subId) tags.push(TAGS.evt.sub(subId));
 
-          await ghlV1UpsertContact({ email, tags, customFields });
+          await ghlV1UpsertContact({
+	    email,
+	    tags,
+	    customFields,
+	    skipCreateIfMissing: true,
+	    context: `invoice.payment_failed ${invoiceId}`,
+	  });
           break;
         }
 
@@ -271,7 +346,13 @@ export function registerStripeWebhooks(app) {
 
           const tags = [TAGS.STABLE.CANCELED, TAGS.evt.sub(subId)];
 
-          await ghlV1UpsertContact({ email, tags, customFields });
+          await ghlV1UpsertContact({
+	    email,
+	    tags,
+	    customFields,
+	    skipCreateIfMissing: true,
+	    context: `customer.subscription.deleted ${subId}`,
+	  });
           break;
         }
 
@@ -305,7 +386,13 @@ export function registerStripeWebhooks(app) {
           // You can use either/both tags to trigger your future Active workflow
           const tags = [TAGS.STABLE.ACTIVE, TAGS.STABLE.SUB_ACTIVE, TAGS.evt.sub(subId)];
 
-          await ghlV1UpsertContact({ email, tags, customFields });
+          await ghlV1UpsertContact({
+	    email,
+	    tags,
+	    customFields,
+	    skipCreateIfMissing: true,
+	    context: `customer.subscription.updated ${subId}`,
+	  });
           break;
         }
 
