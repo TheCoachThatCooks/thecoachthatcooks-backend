@@ -35,6 +35,8 @@ const PORT = process.env.PORT || 3000;
 app.use(
   cors({
     origin: [
+      "https://flavorcoach.ai",
+      "https://www.flavorcoach.ai",
       "https://thecoachthatcooks-ai.netlify.app",
       "https://staging--thecoachthatcooks-ai.netlify.app",
       "https://fitfoodlovers.com",
@@ -49,7 +51,7 @@ app.options("*", cors());
 app.use((req, res, next) => {
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; connect-src 'self' https://api.openai.com https://thecoachthatcooks-ai.netlify.app;"
+    "default-src 'self'; connect-src 'self' https://api.openai.com https://thecoachthatcooks-ai.netlify.app https://flavorcoach.ai https://www.flavorcoach.ai;"
   );
   next();
 });
@@ -71,6 +73,9 @@ const limiter = rateLimit({
   message: "Too many requests from this IP, please try again after 15 minutes",
 });
 app.use(limiter);
+
+// Legacy checkout routes from old "Free until Jan 1" promo.
+// Current production signup uses Stripe Payment Links instead.
 
 // POST /api/checkout/session
 // Creates a Stripe Checkout Session for your $10/mo plan.
