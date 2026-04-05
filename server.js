@@ -187,8 +187,16 @@ function nextJan1UnixEastern() {
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+function stripCodeFences(text = "") {
+  return text
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+}
+
 /**
- * 📸 Breakdown Route (image upload)
+ * 📸 Breakdown Route (image upload + AI analysis)
  */
 app.post("/api/breakdown", upload.single("image"), async (req, res) => {
   try {
@@ -207,12 +215,104 @@ app.post("/api/breakdown", upload.single("image"), async (req, res) => {
       ? req.body.goalMode
       : "higher_protein";
 
+    const base64Image = req.file.buffer.toString("base64");
+    const imageDataUrl = `data:${req.file.mimetype};base64,${base64Image}`;
+
+    const goalLabelMap = {
+      higher_protein: "Higher Protein",
+      lighter: "Lighter",
+      balanced: "Better Balanced",
+      keep_the_vibe: "Keep the Vibe"
+    };
+
+    const prompt = `
+You are FlavorCoach Breakdown, a chef-driven healthy eating assistant.
+
+Your job:
+Analyze the food image and give a useful, concise, highly readable “chef’s breakdown.”
+Do NOT be preachy. Do NOT sound like a calorie tracker. Do NOT shame the food.
+Be practical, vivid, and realistic.
+
+The selected goal is: ${goalLabelMap[goalMode]}.
+
+Important rules:
+- Work from what is visible in the image.
+- If uncertain, speak in likely terms, not false certainty.
+- Preserve the spirit/vibe of the dish when suggesting upgrades.
+- Focus on high-impact moves, not nitpicky advice.
+- Keep output punchy and camera-friendly.
+- Return ONLY valid JSON. No markdown. No code fences.
+
+Return this exact JSON shape:
+{
+  "dishName": "short name for the dish or meal situation",
+  "quickRead": "1-2 sentence read on what this appears to be",
+  "mainIssue": "biggest improvement opportunity in one sentence",
+  "upgradeHeadline": "one punchy sentence describing the better version",
+  "chefMoves": [
+    "short practical move 1",
+    "short practical move 2",
+    "short practical move 3"
+  ],
+  "resultSummary": "short payoff line that feels compelling",
+  "confidenceNote": "brief note that this is a visual estimate"
+}
+`;
+
+    const response = await openai.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: prompt },
+            {
+              type: "input_image",
+              image_url: imageDataUrl,
+              detail: "high"
+            }
+          ]
+        }
+      ]
+    });
+
+    const rawText = response.output_text || "";
+    const cleanedText = stripCodeFences(rawText);
+
+    let parsed;
+    try {
+      parsed = JSON.parse(cleanedText);
+    } catch (parseError) {
+      console.error("Breakdown JSON parse failed:", cleanedText);
+      return res.status(500).json({
+        error: "AI returned an invalid breakdown format."
+      });
+    }
+
+    if (
+      !parsed.dishName ||
+      !parsed.quickRead ||
+      !parsed.upgradeHeadline ||
+      !Array.isArray(parsed.chefMoves) ||
+      !parsed.resultSummary
+    ) {
+      return res.status(500).json({
+        error: "AI returned an incomplete breakdown."
+      });
+    }
+
     return res.json({
-      message: "Image received successfully.",
-      fileName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      fileSize: req.file.size,
-      goalMode
+      success: true,
+      breakdown: {
+        dishName: parsed.dishName,
+        quickRead: parsed.quickRead,
+        mainIssue: parsed.mainIssue || "",
+        upgradeHeadline: parsed.upgradeHeadline,
+        chefMoves: parsed.chefMoves.slice(0, 5),
+        resultSummary: parsed.resultSummary,
+        confidenceNote:
+          parsed.confidenceNote || "Visual estimate only — exact ingredients and portions may vary."
+      }
     });
 
   } catch (error) {
