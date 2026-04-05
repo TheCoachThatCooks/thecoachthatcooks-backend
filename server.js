@@ -14,6 +14,7 @@ import {
 import Stripe from "stripe";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 import { registerStripeWebhooks } from "./webhooks.js";
+import multer from "multer";
 
 dotenv.config();
 
@@ -31,6 +32,13 @@ console.log("✅ Firestore DB initialized");
 const app = express();
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3000;
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 8 * 1024 * 1024 // 8MB
+  }
+});
 
 app.use(
   cors({
@@ -178,6 +186,40 @@ function nextJan1UnixEastern() {
 }
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+/**
+ * 📸 Breakdown Route (image upload)
+ */
+app.post("/api/breakdown", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No image file received." });
+    }
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+
+    if (!allowedTypes.includes(req.file.mimetype)) {
+      return res.status(400).json({ error: "Unsupported image type." });
+    }
+
+    const allowedGoals = ["higher_protein", "lighter", "balanced", "keep_the_vibe"];
+    const goalMode = allowedGoals.includes(req.body.goalMode)
+      ? req.body.goalMode
+      : "higher_protein";
+
+    return res.json({
+      message: "Image received successfully.",
+      fileName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      fileSize: req.file.size,
+      goalMode
+    });
+
+  } catch (error) {
+    console.error("Breakdown route error:", error);
+    return res.status(500).json({ error: "Server error handling breakdown request." });
+  }
+});
 
 /**
  * 🔁 Chat Route (memory enabled)
