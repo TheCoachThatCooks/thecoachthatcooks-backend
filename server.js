@@ -6,6 +6,7 @@ import rateLimit from "express-rate-limit";
 import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
 import { buildSystemPrompt } from "./prompt.js"; // <-- ✅ Modular brain
+import { buildBreakdownPrompt } from "./breakdown-prompts.js";
 import {
   buildWeeklyPlannerPrompt,
   buildDayPlannerPrompt,
@@ -225,43 +226,25 @@ app.post("/api/breakdown", upload.single("image"), async (req, res) => {
       keep_the_vibe: "Keep the Vibe"
     };
 
-    const prompt = `
-You are FlavorCoach Breakdown, a chef-driven healthy eating assistant.
+    const userContext =
+      typeof req.body.userContext === "string" ? req.body.userContext.trim() : "";
 
-Your job:
-Analyze the food image and give a useful, concise, highly readable “chef’s breakdown.”
-Do NOT be preachy. Do NOT sound like a calorie tracker. Do NOT shame the food.
-Be practical, vivid, and realistic.
+    const prompt = buildBreakdownPrompt({
+      goal: goalLabelMap[goalMode],
+      userContext
+    });
 
-The selected goal is: ${goalLabelMap[goalMode]}.
-
-Important rules:
-- Work from what is visible in the image.
-- If uncertain, speak in likely terms, not false certainty.
-- Preserve the spirit/vibe of the dish when suggesting upgrades.
-- Focus on high-impact moves, not nitpicky advice.
-- Keep output punchy and camera-friendly.
-- Return ONLY valid JSON. No markdown. No code fences.
-
-Return this exact JSON shape:
-{
-  "dishName": "short name for the dish or meal situation",
-  "quickRead": "1-2 sentence read on what this appears to be",
-  "mainIssue": "biggest improvement opportunity in one sentence",
-  "upgradeHeadline": "one punchy sentence describing the better version",
-  "chefMoves": [
-    "short practical move 1",
-    "short practical move 2",
-    "short practical move 3"
-  ],
-  "resultSummary": "short payoff line that feels compelling",
-  "confidenceNote": "brief note that this is a visual estimate"
-}
-`;
+    const systemPrompt = buildSystemPrompt();
 
     const response = await openai.responses.create({
       model: "gpt-4.1-mini",
       input: [
+        {
+          role: "system",
+          content: [
+            { type: "input_text", text: systemPrompt }
+          ]
+        },
         {
           role: "user",
           content: [
@@ -309,6 +292,7 @@ Return this exact JSON shape:
         mainIssue: parsed.mainIssue || "",
         upgradeHeadline: parsed.upgradeHeadline,
         chefMoves: parsed.chefMoves.slice(0, 5),
+	chefNotes: parsed.chefNotes || "",
         resultSummary: parsed.resultSummary,
         confidenceNote:
           parsed.confidenceNote || "Visual estimate only — exact ingredients and portions may vary."
