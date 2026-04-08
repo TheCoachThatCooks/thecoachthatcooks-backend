@@ -255,6 +255,8 @@ You MUST include:
 Optional:
 - 1 technique or structure upgrade
 
+- Include at least one standout move that feels slightly unexpected or uniquely clever (something a typical recipe or diet app would NOT suggest)
+
 Each move should:
 - Be short, ideally 1 line that's ~12–15 words.
 - Be actionable
