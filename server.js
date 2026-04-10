@@ -211,27 +211,76 @@ app.post("/api/breakdown", upload.single("image"), async (req, res) => {
       return res.status(400).json({ error: "Unsupported image type." });
     }
 
-    const allowedGoals = ["higher_protein", "lighter", "balanced", "keep_the_vibe"];
-    const goalMode = allowedGoals.includes(req.body.goalMode)
-      ? req.body.goalMode
-      : "higher_protein";
+    const imageContext =
+      typeof req.body.imageContext === "string" ? req.body.imageContext.trim() : "";
+
+    const rawBreakdownIntent =
+      typeof req.body.breakdownIntent === "string" ? req.body.breakdownIntent.trim() : "";
+
+    const uid =
+      typeof req.body.uid === "string" && req.body.uid.trim() !== ""
+        ? req.body.uid.trim()
+        : "";
+
+    let flavorProfile = null;
+
+    if (uid) {
+      try {
+        const userDoc = await db.collection("users").doc(uid).get();
+        if (userDoc.exists) {
+          flavorProfile = userDoc.data()?.flavorProfile || null;
+        }
+      } catch (err) {
+        console.warn("⚠️ Failed to load flavor profile for breakdown UID:", uid, err.message);
+      }
+    }
+
+    const profileGoals = Array.isArray(flavorProfile?.goals)
+      ? flavorProfile.goals.filter(Boolean)
+      : [];
+
+    const profilePreferences = Array.isArray(flavorProfile?.preferences)
+      ? flavorProfile.preferences.filter(Boolean)
+      : [];
+
+    const profileDislikes = Array.isArray(flavorProfile?.dislikes)
+      ? flavorProfile.dislikes.filter(Boolean)
+      : [];
+
+    const profileRestrictions = Array.isArray(flavorProfile?.dietaryRestrictions)
+      ? flavorProfile.dietaryRestrictions.filter(Boolean)
+      : [];
+
+    const intentParts = [];
+
+    if (rawBreakdownIntent) {
+      intentParts.push(rawBreakdownIntent);
+    }
+
+    if (profileGoals.length) {
+      intentParts.push(`Flavor profile goals: ${profileGoals.join(", ")}.`);
+    }
+
+    if (profilePreferences.length) {
+      intentParts.push(`Flavor profile preferences: ${profilePreferences.join(", ")}.`);
+    }
+
+    if (profileRestrictions.length) {
+      intentParts.push(`Dietary restrictions: ${profileRestrictions.join(", ")}.`);
+    }
+
+    if (profileDislikes.length) {
+      intentParts.push(`Avoid or work around: ${profileDislikes.join(", ")}.`);
+    }
+
+    const breakdownIntent = intentParts.join(" ");
 
     const base64Image = req.file.buffer.toString("base64");
     const imageDataUrl = `data:${req.file.mimetype};base64,${base64Image}`;
 
-    const goalLabelMap = {
-      higher_protein: "Higher Protein",
-      lighter: "Lighter",
-      balanced: "Better Balanced",
-      keep_the_vibe: "Keep the Vibe"
-    };
-
-    const userContext =
-      typeof req.body.userContext === "string" ? req.body.userContext.trim() : "";
-
     const prompt = buildBreakdownPrompt({
-      goal: goalLabelMap[goalMode],
-      userContext
+      imageContext,
+      breakdownIntent
     });
 
     const systemPrompt = buildSystemPrompt();
